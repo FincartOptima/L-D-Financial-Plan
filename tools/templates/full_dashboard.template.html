@@ -20,7 +20,10 @@
     --s-inprocess:    #eb6834;
     --s-reassigned:   #1baf7a;
     --s-onhold:       #eda100;
-    --s-other:        #e87ba4;
+    --s-followup:     #e87ba4;
+    --s-assigned:     #008300;
+    --s-dead:         #4a3aa7;
+    --s-other:        #e34948;
     --s-none:         #898781;
   }
   @media (prefers-color-scheme: dark) {
@@ -39,7 +42,10 @@
       --s-inprocess:    #d95926;
       --s-reassigned:   #199e70;
       --s-onhold:       #c98500;
-      --s-other:        #d55181;
+      --s-followup:     #d55181;
+      --s-assigned:     #008300;
+      --s-dead:         #9085e9;
+      --s-other:        #e66767;
       --s-none:         #898781;
     }
   }
@@ -58,7 +64,10 @@
     --s-inprocess:    #d95926;
     --s-reassigned:   #199e70;
     --s-onhold:       #c98500;
-    --s-other:        #d55181;
+    --s-followup:     #d55181;
+    --s-assigned:     #008300;
+    --s-dead:         #9085e9;
+    --s-other:        #e66767;
     --s-none:         #898781;
   }
 
@@ -143,6 +152,9 @@
   .rfill { height: 100%; background: var(--c); border-radius: 0 4px 4px 0; transition: width .25s ease; }
   .rrow[data-dim="1"] { opacity: .35; }
   .rrow:hover .rtrack { background: var(--grid); }
+  .rrow-nomatch { padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--grid); }
+  .rrow-nomatch .rname { color: var(--text-secondary); }
+  .rnote { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
 
   /* ---------- stacked columns ---------- */
   .cols { display: flex; align-items: flex-end; gap: 18px; height: 250px; padding-left: 40px; position: relative; }
@@ -241,7 +253,7 @@
       <input type="search" id="fSearch" placeholder="e.g. gmail.com, LD08267, Sagar">
     </div>
     <div class="fgroup" style="flex:1 1 100%">
-      <span class="flabel">Lead status (click to include / exclude)</span>
+      <span class="flabel">Lead status — matched clients only (click to include / exclude)</span>
       <div class="chips" id="statusChips"></div>
     </div>
     <button class="ghost" id="resetBtn" type="button">Reset filters</button>
@@ -296,6 +308,9 @@
     { k: 'IN PROCESS',       label: 'In process',       c: 'var(--s-inprocess)' },
     { k: 'RE-ASSIGNED',      label: 'Re-assigned',      c: 'var(--s-reassigned)' },
     { k: 'ON HOLD',          label: 'On hold',          c: 'var(--s-onhold)' },
+    { k: 'FOLLOW UP',        label: 'Follow up',        c: 'var(--s-followup)' },
+    { k: 'ASSIGNED',         label: 'Assigned',         c: 'var(--s-assigned)' },
+    { k: 'DEAD',             label: 'Dead',             c: 'var(--s-dead)' },
     { k: 'NOT IN LEAD DATA', label: 'Not in lead data', c: 'var(--s-none)' }
   ];
   // Any status present in the data but not listed above gets the spare slot.
@@ -389,12 +404,13 @@
         '<span class="rval">' + notMatchedAll.length + '</span><span class="rpct">' + pct(notMatchedAll.length, sel.length) + ' of all</span></div>' +
         '<p class="rnote">No lead-master record for this email — listed below, not included in the breakdown above.</p></div>' : '');
 
-    // Month-wise stacked columns
+    // Month-wise stacked columns — matched clients only (same population as the ranked bars above).
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);
-    const present = STATUS.filter(s => rows.some(r => r.status === s.k));
+    const present = ANALYZE_STATUS.filter(s => rows.some(r => r.status === s.k));
     const series = months.map(m => {
       const mr = rows.filter(r => r.mk === m.mk);
-      return { m, total: mr.length, parts: present.map(s => ({ s, n: mr.filter(r => r.status === s.k).length })) };
+      const notMatched = notMatchedAll.filter(r => r.mk === m.mk).length;
+      return { m, total: mr.length, notMatched, parts: present.map(s => ({ s, n: mr.filter(r => r.status === s.k).length })) };
     });
     const cmax = Math.max(1, ...series.map(d => d.total));
     const step = cmax <= 20 ? 5 : cmax <= 60 ? 20 : cmax <= 150 ? 50 : 100;
@@ -402,8 +418,9 @@
     let gl = '';
     for (let v = 0; v <= top; v += step) gl += '<div class="gl" style="bottom:' + (v / top * 100) + '%"><span>' + v + '</span></div>';
 
-    $('monthCap').innerHTML = 'Stacked count of ' + unit + ' per approval month' +
-      (state.basis === 'clients' ? ' (a repeat client is counted once, in their latest approval month).' : '.');
+    $('monthCap').innerHTML = 'Stacked count of matched ' + unit + ' per approval month' +
+      (state.basis === 'clients' ? ' (a repeat client is counted once, in their latest approval month).' : '.') +
+      ' Unmatched clients are excluded from this chart — see "Not matched" in the table below.';
     $('legend').innerHTML = present.map(s => '<span class="lg" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</span>').join('');
     $('cols').innerHTML = '<div class="gridlines">' + gl + '</div>' + series.map(d =>
       '<div class="col">' + (d.total ? '<div class="coltot">' + d.total + '</div>' : '') +
@@ -414,12 +431,14 @@
     $('xaxis').innerHTML = series.map(d => '<div class="xlab">' + esc(d.m.m) + '</div>').join('');
 
     // Crosstab
-    const head = '<thead><tr><th>Month</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead>';
+    const head = '<thead><tr><th>Month</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') +
+      '<th class="num">Matched total</th><th class="num" style="color:var(--muted)">Not matched</th></tr></thead>';
     const body = series.map(d => '<tr><td>' + esc(d.m.m) + '</td>' +
       d.parts.map(p => '<td class="num">' + (p.n || '–') + (p.n ? ' <span style="color:var(--muted);font-size:11.5px">' + pct(p.n, d.total) + '</span>' : '') + '</td>').join('') +
-      '<td class="num">' + d.total + '</td></tr>').join('');
+      '<td class="num">' + d.total + '</td><td class="num" style="color:var(--muted)">' + (d.notMatched || '–') + '</td></tr>').join('');
     const tot = present.map(s => rows.filter(r => r.status === s.k).length);
-    const foot = '<tr class="totrow"><td>All months</td>' + tot.map(n => '<td class="num">' + n + ' <span style="color:var(--muted);font-size:11.5px;font-weight:400">' + pct(n, total) + '</span></td>').join('') + '<td class="num">' + total + '</td></tr>';
+    const foot = '<tr class="totrow"><td>All months</td>' + tot.map(n => '<td class="num">' + n + ' <span style="color:var(--muted);font-size:11.5px;font-weight:400">' + pct(n, total) + '</span></td>').join('') +
+      '<td class="num">' + total + '</td><td class="num" style="color:var(--muted);font-weight:400">' + notMatchedAll.length + '</td></tr>';
     $('crosstab').innerHTML = head + '<tbody>' + body + foot + '</tbody>';
 
     // Client list
@@ -429,14 +448,15 @@
       { k: 'rm', t: 'Current RM' }, { k: 'src', t: 'Lead source' }, { k: 'created', t: 'Lead created' },
       { k: 'converted', t: 'Converted on' }, { k: 'appr', t: 'Approved by' }
     ];
-    const sorted = rows.slice().sort((a, b) => {
+    const sorted = listRows.slice().sort((a, b) => {
       const k = state.sort.key, d = state.sort.dir;
       const av = (k === 'm' ? a.mk + a.date : String(a[k] || '')).toLowerCase();
       const bv = (k === 'm' ? b.mk + b.date : String(b[k] || '')).toLowerCase();
       return av < bv ? -d : av > bv ? d : 0;
     });
-    $('listCap').innerHTML = 'Showing <b>' + total + '</b> ' + unit +
-      (state.basis === 'clients' ? ' — one row per email id, latest plan approval shown; <b>#</b> is how many approvals that client has.' : ' — one row per plan-approval ticket.');
+    $('listCap').innerHTML = 'Showing <b>' + listRows.length + '</b> ' + unit +
+      (state.basis === 'clients' ? ' — one row per email id, latest plan approval shown; <b>#</b> is how many approvals that client has.' : ' — one row per plan-approval ticket.') +
+      ' Includes unmatched clients (grey "Not in lead data" status) — listed here, excluded from the analysis above.';
     $('clientTbl').innerHTML =
       '<thead><tr>' + cols.map(c => '<th data-key="' + c.k + '">' + c.t + (state.sort.key === c.k ? (state.sort.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>').join('') +
       (state.basis === 'clients' ? '<th class="num">#</th>' : '') + '</tr></thead><tbody>' +
@@ -447,14 +467,15 @@
       }).join('') + (state.basis === 'clients' ? '<td class="num">' + r._n + '</td>' : '') + '</tr>').join('') +
       '</tbody>';
 
-    // Status chips
-    $('statusChips').innerHTML = STATUS.filter(s => ROWS.some(r => r.status === s.k)).map(s =>
+    // Status chips — real statuses only (this narrows the analysis above; unmatched clients have no chip
+    // since there is nothing to include/exclude them by — they always stay in the client list).
+    $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => ROWS.some(r => r.status === s.k)).map(s =>
       '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</button>').join('');
 
     $('foot').innerHTML =
       '<b>Sources.</b> Client universe: ' + esc(META.dashFile) + ' → tabs ' + META.tabs.map(t => '<code>' + esc(t) + '</code>').join(' + ') + ' (' + ROWS.length + ' approval rows, ' +
       new Set(ROWS.map(r => r.key)).size + ' unique email ids). Lead statuses: ' + esc(META.leadFile) + ' (' + META.leadRows.toLocaleString('en-IN') + ' leads), joined on <code>Email Id</code> = <code>userId</code>, case-insensitive.<br>' +
-      '<b>Not in lead data</b> = the plan-approval email has no matching row in the lead export, so no leadStatus exists for it.<br>' +
+      '<b>Not matched</b> = the plan-approval email has no matching row in the lead export, so no leadStatus exists for it. These clients are listed in the table above but excluded from the status breakdown, chart and crosstab, since there is nothing to analyze.<br>' +
       'Built ' + esc(META.generated) + '. This file is regenerated by <code>tools/build_dashboard.py</code> — do not edit by hand, and do not commit/push it (it is git-ignored).';
   }
 
@@ -473,21 +494,21 @@
   document.addEventListener('mousemove', e => {
     const seg = e.target.closest('.seg-mark');
     const row = e.target.closest('.rrow');
-    const rows = view();
     if (seg) {
+      const rows = selAll().filter(r => r.matched && !state.off.has(r.status));
       const mk = seg.dataset.mk, st = seg.dataset.status, s = sInfo(st);
       const mr = rows.filter(r => r.mk === mk);
       const n = mr.filter(r => r.status === st).length;
       const m = MONTHS.find(x => x.mk === mk);
       showTip('<div class="t">' + esc(m.m) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
-        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, mr.length) + ' of ' + mr.length + ' in this month</div>', e);
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, mr.length) + ' of ' + mr.length + ' matched in this month</div>', e);
     } else if (row) {
       const st = row.dataset.status, s = sInfo(st);
-      const all = state.basis === 'clients' ? dedupe(baseRows()) : baseRows();
-      const n = all.filter(r => r.status === st).length;
+      const matchedAll = selAll().filter(r => r.matched);
+      const n = matchedAll.filter(r => r.status === st).length;
       showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' +
         (state.basis === 'clients' ? 'Clients' : 'Approvals') + '<span class="v">' + n + '</span></div><div class="m">' +
-        pct(n, all.length) + ' of ' + all.length + ' · click to ' + (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+        pct(n, matchedAll.length) + ' of matched · click to ' + (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
     } else hideTip();
   });
 
@@ -523,7 +544,8 @@
     render();
   });
   $('csvBtn').addEventListener('click', () => {
-    const rows = view();
+    const sel = selAll();
+    const rows = sel.filter(r => !r.matched || !state.off.has(r.status));
     const cols = ['m', 'date', 'q', 'ticket', 'name', 'email', 'status', 'advisor', 'rm', 'src', 'created', 'lastStatus', 'converted', 'appr', 'verdict'];
     const head = ['Month', 'Date', 'Tab', 'Ticket Id', 'Client Name', 'Email Id', 'Lead Status', 'Advisor', 'Current RM', 'Lead Source', 'Lead Created', 'Last Status Date', 'Converted On', 'Approved By', 'Approved/Rejected'];
     const csv = [head.join(',')].concat(rows.map(r => cols.map(c => '"' + String(r[c] == null ? '' : r[c]).replace(/"/g, '""') + '"').join(','))).join('\r\n');

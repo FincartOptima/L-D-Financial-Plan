@@ -20,7 +20,10 @@
     --s-inprocess:    #eb6834;
     --s-reassigned:   #1baf7a;
     --s-onhold:       #eda100;
-    --s-other:        #e87ba4;
+    --s-followup:     #e87ba4;
+    --s-assigned:     #008300;
+    --s-dead:         #4a3aa7;
+    --s-other:        #e34948;
     --s-none:         #898781;
   }
   @media (prefers-color-scheme: dark) {
@@ -39,7 +42,10 @@
       --s-inprocess:    #d95926;
       --s-reassigned:   #199e70;
       --s-onhold:       #c98500;
-      --s-other:        #d55181;
+      --s-followup:     #d55181;
+      --s-assigned:     #008300;
+      --s-dead:         #9085e9;
+      --s-other:        #e66767;
       --s-none:         #898781;
     }
   }
@@ -58,7 +64,10 @@
     --s-inprocess:    #d95926;
     --s-reassigned:   #199e70;
     --s-onhold:       #c98500;
-    --s-other:        #d55181;
+    --s-followup:     #d55181;
+    --s-assigned:     #008300;
+    --s-dead:         #9085e9;
+    --s-other:        #e66767;
     --s-none:         #898781;
   }
 
@@ -142,6 +151,9 @@
   .rfill { height: 100%; background: var(--c); border-radius: 0 4px 4px 0; transition: width .25s ease; }
   .rrow[data-dim="1"] { opacity: .35; }
   .rrow:hover .rtrack { background: var(--grid); }
+  .rrow-nomatch { padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--grid); }
+  .rrow-nomatch .rname { color: var(--text-secondary); }
+  .rnote { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
 
   /* ---------- stacked columns ---------- */
   .cols { display: flex; align-items: flex-end; gap: 18px; height: 250px; padding-left: 40px; position: relative; }
@@ -229,7 +241,7 @@
       <select id="fSource"><option value="">All sources</option></select>
     </div>
     <div class="fgroup" style="flex:1 1 100%">
-      <span class="flabel">Lead status (click to include / exclude)</span>
+      <span class="flabel">Lead status — matched clients only (click to include / exclude)</span>
       <div class="chips" id="statusChips"></div>
     </div>
     <button class="ghost" id="resetBtn" type="button">Reset filters</button>
@@ -277,11 +289,17 @@
     { k: 'IN PROCESS',       label: 'In process',       c: 'var(--s-inprocess)' },
     { k: 'RE-ASSIGNED',      label: 'Re-assigned',      c: 'var(--s-reassigned)' },
     { k: 'ON HOLD',          label: 'On hold',          c: 'var(--s-onhold)' },
+    { k: 'FOLLOW UP',        label: 'Follow up',        c: 'var(--s-followup)' },
+    { k: 'ASSIGNED',         label: 'Assigned',         c: 'var(--s-assigned)' },
+    { k: 'DEAD',             label: 'Dead',             c: 'var(--s-dead)' },
     { k: 'NOT IN LEAD DATA', label: 'Not in lead data', c: 'var(--s-none)' }
   ];
   const allStatusKeys = new Set([...CUBE.tickets, ...CUBE.clients].map(r => r.status));
   allStatusKeys.forEach(k => { if (!STATUS.some(s => s.k === k)) STATUS.splice(STATUS.length - 1, 0, { k, label: k, c: 'var(--s-other)' }); });
   const sInfo = k => STATUS.find(s => s.k === k) || { k, label: k, c: 'var(--s-other)' };
+  // The lead-status breakdown (bars/chart/crosstab) only ever covers matched clients — a client with
+  // no lead-master record has no status to analyze, so 'NOT IN LEAD DATA' never appears in it.
+  const ANALYZE_STATUS = STATUS.filter(s => s.k !== 'NOT IN LEAD DATA');
 
   const state = { basis: 'clients', month: '', quarter: '', advisor: '', source: '', off: new Set() };
 
@@ -298,45 +316,54 @@
       (!state.advisor || r.advisor === state.advisor) &&
       (!state.source || r.src === state.source));
   }
-  const baseCube = () => filt(CUBE[state.basis]);
-  const shownCube = () => baseCube().filter(r => !state.off.has(r.status));
+  const baseCube = () => filt(CUBE[state.basis]);                                          // matched + unmatched
+  const matchedCube = () => baseCube().filter(r => r.status !== 'NOT IN LEAD DATA');
+  const notMatchedSum = () => sum(baseCube().filter(r => r.status === 'NOT IN LEAD DATA'));
+  const shownCube = () => matchedCube().filter(r => !state.off.has(r.status));
 
   function render() {
-    const rows = shownCube(), all = baseCube();
+    const sel = baseCube();
+    const matchedAll = matchedCube();
+    const notMatched = notMatchedSum();
+    const rows = shownCube();
     const total = sum(rows);
     const unit = state.basis === 'clients' ? 'clients' : 'plan approvals';
 
     const cnt = k => sum(rows.filter(r => r.status === k));
-    const matched = total - cnt('NOT IN LEAD DATA');
     const ticketsAll = sum(filt(CUBE.tickets)), clientsAll = sum(filt(CUBE.clients));
 
     $('kpis').innerHTML = [
       { k: 'Plan approvals', v: ticketsAll, n: 'rows on the two Plan Approval tabs' },
       { k: 'Unique clients', v: clientsAll, n: 'distinct email ids · ' + (ticketsAll - clientsAll) + ' repeat approvals' },
-      { k: 'Mapped to lead data', v: matched, n: '<b>' + pct(matched, total) + '</b> of ' + total + ' ' + unit + ' matched by email' },
-      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of shown ' + unit },
-      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of shown ' + unit }
+      { k: 'Mapped to lead data', v: sum(matchedAll), n: '<b>' + pct(sum(matchedAll), sum(sel)) + '</b> of ' + sum(sel) + ' ' + unit + ' matched by email' },
+      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of matched ' + unit },
+      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of matched ' + unit }
     ].map(t => '<div class="kpi"><div class="k">' + t.k + '</div><div class="v">' + t.v.toLocaleString('en-IN') + '</div><div class="n">' + t.n + '</div></div>').join('');
 
-    // Ranked distribution — from `all` (pre status-off) so excluded ones stay visible, dimmed, clickable.
-    const byStatus = STATUS.map(s => ({ s, n: sum(all.filter(r => r.status === s.k)) })).filter(d => d.n > 0);
+    // Ranked distribution — matched clients only, from `matchedAll` (pre status-off) so excluded ones
+    // stay visible, dimmed, clickable. Unmatched clients get one separate, non-interactive line below.
+    const byStatus = ANALYZE_STATUS.map(s => ({ s, n: sum(matchedAll.filter(r => r.status === s.k)) })).filter(d => d.n > 0);
     byStatus.sort((a, b) => b.n - a.n);
     const max = Math.max(1, ...byStatus.map(d => d.n));
-    const denom = sum(all);
-    $('distCap').innerHTML = 'Out of <b>' + denom + '</b> ' + unit + ' in the current selection. Click a bar to exclude that status everywhere.';
+    const denom = sum(matchedAll);
+    $('distCap').innerHTML = 'Out of <b>' + denom + '</b> matched ' + unit + ' (' + pct(denom, sum(sel)) + ' of ' + sum(sel) + ' total in the current selection). Click a bar to exclude that status.';
     $('rank').innerHTML = byStatus.map(d =>
       '<div class="rrow" data-status="' + esc(d.s.k) + '" data-dim="' + (state.off.has(d.s.k) ? 1 : 0) + '" style="--c:' + d.s.c + '">' +
         '<div class="rhead"><span class="rname"><i class="dot"></i>' + esc(d.s.label) + '</span>' +
         '<span class="rval">' + d.n + '</span><span class="rpct">' + pct(d.n, denom) + '</span></div>' +
         '<div class="rtrack"><div class="rfill" style="width:' + (d.n / max * 100) + '%"></div></div>' +
-      '</div>').join('');
+      '</div>').join('') +
+      (notMatched ? '<div class="rrow-nomatch"><div class="rhead"><span class="rname"><i class="dot" style="background:var(--s-none)"></i>Not matched to lead data</span>' +
+        '<span class="rval">' + notMatched + '</span><span class="rpct">' + pct(notMatched, sum(sel)) + ' of all</span></div>' +
+        '<p class="rnote">No lead record at build time for these ' + unit + ' — counted here, not included in the breakdown above.</p></div>' : '');
 
-    // Month-wise stacked columns
+    // Month-wise stacked columns — matched clients only (same population as the ranked bars above).
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);
-    const present = STATUS.filter(s => rows.some(r => r.status === s.k));
+    const present = ANALYZE_STATUS.filter(s => rows.some(r => r.status === s.k));
     const series = months.map(m => {
       const mr = rows.filter(r => r.mk === m.mk);
-      return { m, total: sum(mr), parts: present.map(s => ({ s, n: sum(mr.filter(r => r.status === s.k)) })) };
+      const mrNotMatched = sum(sel.filter(r => r.mk === m.mk && r.status === 'NOT IN LEAD DATA'));
+      return { m, total: sum(mr), notMatched: mrNotMatched, parts: present.map(s => ({ s, n: sum(mr.filter(r => r.status === s.k)) })) };
     });
     const cmax = Math.max(1, ...series.map(d => d.total));
     const step = cmax <= 20 ? 5 : cmax <= 60 ? 20 : cmax <= 150 ? 50 : 100;
@@ -344,8 +371,9 @@
     let gl = '';
     for (let v = 0; v <= top; v += step) gl += '<div class="gl" style="bottom:' + (v / top * 100) + '%"><span>' + v + '</span></div>';
 
-    $('monthCap').innerHTML = 'Stacked count of ' + unit + ' per approval month' +
-      (state.basis === 'clients' ? ' (a repeat client is counted once, in their latest approval month).' : '.');
+    $('monthCap').innerHTML = 'Stacked count of matched ' + unit + ' per approval month' +
+      (state.basis === 'clients' ? ' (a repeat client is counted once, in their latest approval month).' : '.') +
+      ' Unmatched clients are excluded from this chart — see "Not matched" in the table below.';
     $('legend').innerHTML = present.map(s => '<span class="lg" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</span>').join('');
     $('cols').innerHTML = '<div class="gridlines">' + gl + '</div>' + series.map(d =>
       '<div class="col">' + (d.total ? '<div class="coltot">' + d.total + '</div>' : '') +
@@ -356,21 +384,23 @@
     $('xaxis').innerHTML = series.map(d => '<div class="xlab">' + esc(d.m.m) + '</div>').join('');
 
     // Crosstab
-    const head = '<thead><tr><th>Month</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead>';
+    const head = '<thead><tr><th>Month</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') +
+      '<th class="num">Matched total</th><th class="num" style="color:var(--muted)">Not matched</th></tr></thead>';
     const body = series.map(d => '<tr><td>' + esc(d.m.m) + '</td>' +
       d.parts.map(p => '<td class="num">' + (p.n || '–') + (p.n ? ' <span style="color:var(--muted);font-size:11.5px">' + pct(p.n, d.total) + '</span>' : '') + '</td>').join('') +
-      '<td class="num">' + d.total + '</td></tr>').join('');
+      '<td class="num">' + d.total + '</td><td class="num" style="color:var(--muted)">' + (d.notMatched || '–') + '</td></tr>').join('');
     const tot = present.map(s => sum(rows.filter(r => r.status === s.k)));
-    const foot = '<tr class="totrow"><td>All months</td>' + tot.map(n => '<td class="num">' + n + ' <span style="color:var(--muted);font-size:11.5px;font-weight:400">' + pct(n, total) + '</span></td>').join('') + '<td class="num">' + total + '</td></tr>';
+    const foot = '<tr class="totrow"><td>All months</td>' + tot.map(n => '<td class="num">' + n + ' <span style="color:var(--muted);font-size:11.5px;font-weight:400">' + pct(n, total) + '</span></td>').join('') +
+      '<td class="num">' + total + '</td><td class="num" style="color:var(--muted);font-weight:400">' + notMatched + '</td></tr>';
     $('crosstab').innerHTML = head + '<tbody>' + body + foot + '</tbody>';
 
-    $('statusChips').innerHTML = STATUS.filter(s => allStatusKeys.has(s.k)).map(s =>
+    $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => allStatusKeys.has(s.k)).map(s =>
       '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</button>').join('');
 
     $('foot').innerHTML =
       '<b>What this shows.</b> Counts of plan-approval clients grouped by lead status, month, advisor and lead source. ' +
       'No client names, emails, or notes are included on this page or in its underlying data — see the internal dashboard for per-client detail.<br>' +
-      '<b>Not in lead data</b> = the plan-approval email had no matching row in the lead system at build time, so no lead status exists for it.<br>' +
+      '<b>Not matched</b> = the plan-approval email had no matching row in the lead system at build time, so no lead status exists for it. Counted above but excluded from the status breakdown, chart and crosstab, since there is nothing to analyze.<br>' +
       'Last updated ' + esc(META.generated) + '.';
   }
 
@@ -395,14 +425,14 @@
       const n = sum(mr.filter(r => r.status === st));
       const m = MONTHS.find(x => x.mk === mk);
       showTip('<div class="t">' + esc(m.m) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
-        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(mr)) + ' of ' + sum(mr) + ' in this month</div>', e);
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(mr)) + ' of ' + sum(mr) + ' matched in this month</div>', e);
     } else if (row) {
       const st = row.dataset.status, s = sInfo(st);
-      const all = baseCube();
-      const n = sum(all.filter(r => r.status === st));
+      const matchedAll = matchedCube();
+      const n = sum(matchedAll.filter(r => r.status === st));
       showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' +
         (state.basis === 'clients' ? 'Clients' : 'Approvals') + '<span class="v">' + n + '</span></div><div class="m">' +
-        pct(n, sum(all)) + ' of ' + sum(all) + ' · click to ' + (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+        pct(n, sum(matchedAll)) + ' of matched · click to ' + (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
     } else hideTip();
   });
 
@@ -432,12 +462,14 @@
   });
   $('csvBtn').addEventListener('click', () => {
     const rows = shownCube();
-    const present = STATUS.filter(s => rows.some(r => r.status === s.k));
+    const sel = baseCube();
+    const present = ANALYZE_STATUS.filter(s => rows.some(r => r.status === s.k));
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);
-    const head = ['Month'].concat(present.map(s => s.label), ['Total']);
+    const head = ['Month'].concat(present.map(s => s.label), ['Matched total', 'Not matched']);
     const lines = months.map(m => {
       const mr = rows.filter(r => r.mk === m.mk);
-      return [m.m].concat(present.map(s => sum(mr.filter(r => r.status === s.k))), [sum(mr)]);
+      const notMatched = sum(sel.filter(r => r.mk === m.mk && r.status === 'NOT IN LEAD DATA'));
+      return [m.m].concat(present.map(s => sum(mr.filter(r => r.status === s.k))), [sum(mr), notMatched]);
     });
     const csv = [head].concat(lines).map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
     const a = document.createElement('a');

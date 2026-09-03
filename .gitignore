@@ -1,0 +1,11 @@
+# Source workbooks contain full client PII (names, emails, mobiles, PAN...). Never commit these.
+*.xlsx
+*.xls
+~$*
+
+# Full-detail dashboard contains client names & emails - local viewing only, never published.
+/plan-approval-lead-status.html
+
+# Python
+__pycache__/
+*.pyc

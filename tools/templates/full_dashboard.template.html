@@ -302,6 +302,9 @@
   ROWS.forEach(r => { if (!STATUS.some(s => s.k === r.status)) STATUS.splice(STATUS.length - 1, 0, { k: r.status, label: r.status, c: 'var(--s-other)' }); });
   const SMAP = Object.fromEntries(STATUS.map(s => [s.k, s]));
   const sInfo = k => SMAP[k] || { k: k, label: k, c: 'var(--s-other)' };
+  // The lead-status breakdown (bars/chart/crosstab) only ever covers matched clients — a client with
+  // no lead-master record has no status to analyze, so 'NOT IN LEAD DATA' never appears in it.
+  const ANALYZE_STATUS = STATUS.filter(s => s.k !== 'NOT IN LEAD DATA');
 
   const MONTHS = [...new Set(ROWS.map(r => r.mk))].sort().map(mk => ({ mk, m: ROWS.find(r => r.mk === mk).m }));
 
@@ -342,43 +345,49 @@
     out.forEach(r => r._n = counts.get(r.key));
     return out;
   }
-  function view() {
+  function selAll() {
     let rows = baseRows();
-    if (state.basis === 'clients') rows = dedupe(rows); else rows = rows.map(r => Object.assign({ _n: 1 }, r));
-    return rows.filter(r => !state.off.has(r.status));
+    return state.basis === 'clients' ? dedupe(rows) : rows.map(r => Object.assign({ _n: 1 }, r));
   }
 
   // ---------- render ----------
   function render() {
-    const rows = view();
-    const all = state.basis === 'clients' ? dedupe(baseRows()) : baseRows();
+    const sel = selAll();                                        // everyone in the current filter scope (matched + unmatched)
+    const matchedAll = sel.filter(r => r.matched);                // has a lead-status record — the analyzable population
+    const notMatchedAll = sel.filter(r => !r.matched);            // no lead-status record — shown, never analyzed
+    const rows = matchedAll.filter(r => !state.off.has(r.status)); // feeds the analysis: bars/chart/crosstab
+    const listRows = sel.filter(r => !r.matched || !state.off.has(r.status)); // feeds the client list — unmatched always included
     const total = rows.length;
     const unit = state.basis === 'clients' ? 'clients' : 'plan approvals';
 
     // KPIs
     const cnt = k => rows.filter(r => r.status === k).length;
-    const matched = rows.filter(r => r.matched).length;
     const ticketsAll = baseRows().length, clientsAll = dedupe(baseRows()).length;
     $('kpis').innerHTML = [
       { k: 'Plan approvals', v: ticketsAll, n: 'rows on the two Plan Approval tabs' },
       { k: 'Unique clients', v: clientsAll, n: 'distinct email ids · ' + (ticketsAll - clientsAll) + ' repeat approvals' },
-      { k: 'Mapped to lead data', v: matched, n: '<b>' + pct(matched, total) + '</b> of ' + total + ' ' + unit + ' matched by email' },
-      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of shown ' + unit },
-      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of shown ' + unit }
+      { k: 'Mapped to lead data', v: matchedAll.length, n: '<b>' + pct(matchedAll.length, sel.length) + '</b> of ' + sel.length + ' ' + unit + ' matched by email' },
+      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of matched ' + unit },
+      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of matched ' + unit }
     ].map(t => '<div class="kpi"><div class="k">' + t.k + '</div><div class="v">' + t.v.toLocaleString('en-IN') + '</div><div class="n">' + t.n + '</div></div>').join('');
 
-    // Ranked distribution — built from `all` so excluded statuses stay visible (dimmed) and clickable.
-    const counts = STATUS.map(s => ({ s, n: all.filter(r => r.status === s.k).length })).filter(d => d.n > 0);
+    // Ranked distribution — matched clients only, built from `matchedAll` so toggled-off statuses stay
+    // visible (dimmed) and clickable. Unmatched clients get one separate, non-interactive line below:
+    // shown for completeness, excluded from the percentages since there's no status to analyze.
+    const counts = ANALYZE_STATUS.map(s => ({ s, n: matchedAll.filter(r => r.status === s.k).length })).filter(d => d.n > 0);
     counts.sort((a, b) => b.n - a.n);
     const max = Math.max(1, ...counts.map(d => d.n));
-    const denom = all.length;
-    $('distCap').innerHTML = 'Out of <b>' + denom + '</b> ' + unit + ' in the current selection. Click a bar to exclude that status everywhere.';
+    const denom = matchedAll.length;
+    $('distCap').innerHTML = 'Out of <b>' + denom + '</b> matched ' + unit + ' (' + pct(denom, sel.length) + ' of ' + sel.length + ' total in the current selection). Click a bar to exclude that status.';
     $('rank').innerHTML = counts.map(d =>
       '<div class="rrow" data-status="' + esc(d.s.k) + '" data-dim="' + (state.off.has(d.s.k) ? 1 : 0) + '" style="--c:' + d.s.c + '">' +
         '<div class="rhead"><span class="rname"><i class="dot"></i>' + esc(d.s.label) + '</span>' +
         '<span class="rval">' + d.n + '</span><span class="rpct">' + pct(d.n, denom) + '</span></div>' +
         '<div class="rtrack"><div class="rfill" style="width:' + (d.n / max * 100) + '%"></div></div>' +
-      '</div>').join('');
+      '</div>').join('') +
+      (notMatchedAll.length ? '<div class="rrow-nomatch"><div class="rhead"><span class="rname"><i class="dot" style="background:var(--s-none)"></i>Not matched to lead data</span>' +
+        '<span class="rval">' + notMatchedAll.length + '</span><span class="rpct">' + pct(notMatchedAll.length, sel.length) + ' of all</span></div>' +
+        '<p class="rnote">No lead-master record for this email — listed below, not included in the breakdown above.</p></div>' : '');
 
     // Month-wise stacked columns
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);

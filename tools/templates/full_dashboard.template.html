@@ -25,6 +25,9 @@
     --s-dead:         #4a3aa7;
     --s-other:        #e34948;
     --s-none:         #898781;
+    /* sequential blue ramp for the month heatmap (light: low -> high) */
+    --hm1: #cde2fb; --hm2: #9ec5f4; --hm3: #5598e7; --hm4: #2a78d6; --hm5: #184f95;
+    --hmi1: #0b0b0b; --hmi2: #0b0b0b; --hmi3: #0b0b0b; --hmi4: #ffffff; --hmi5: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
@@ -47,6 +50,8 @@
       --s-dead:         #9085e9;
       --s-other:        #e66767;
       --s-none:         #898781;
+      --hm1: #0d366b; --hm2: #184f95; --hm3: #256abf; --hm4: #3987e5; --hm5: #86b6ef;
+      --hmi1: #ffffff; --hmi2: #ffffff; --hmi3: #ffffff; --hmi4: #0b0b0b; --hmi5: #0b0b0b;
     }
   }
   :root[data-theme="dark"] {
@@ -69,9 +74,12 @@
     --s-dead:         #9085e9;
     --s-other:        #e66767;
     --s-none:         #898781;
+    --hm1: #0d366b; --hm2: #184f95; --hm3: #256abf; --hm4: #3987e5; --hm5: #86b6ef;
+    --hmi1: #ffffff; --hmi2: #ffffff; --hmi3: #ffffff; --hmi4: #0b0b0b; --hmi5: #0b0b0b;
   }
 
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 148px; }
   body {
     margin: 0;
     background: var(--plane);
@@ -79,14 +87,33 @@
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px 64px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 0 20px 72px; }
 
-  header.top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
-  header.top .grow { flex: 1 1 340px; min-width: 0; }
-  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .sub { color: var(--text-secondary); font-size: 13px; margin: 0; }
+  /* ---------- masthead ---------- */
+  header.top {
+    display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+    padding: 30px 0 22px; margin-bottom: 18px; border-bottom: 1px solid var(--border);
+  }
+  header.top .grow { flex: 1 1 380px; min-width: 0; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; font-weight: 680; }
+  .sub { color: var(--text-secondary); font-size: 13.5px; margin: 0; max-width: 68ch; }
   .sub code { background: var(--wash); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-  .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #b03a2e; background: rgba(211,71,52,.12); border: 1px solid rgba(211,71,52,.35); border-radius: 6px; padding: 3px 8px; margin-bottom: 8px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #b03a2e; background: rgba(211,71,52,.12); border: 1px solid rgba(211,71,52,.35); border-radius: 6px; padding: 3px 8px; margin-bottom: 10px; }
+  .headmeta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .stamp { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+
+  /* ---------- section nav ---------- */
+  .secnav { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; }
+  .secnav a {
+    font-size: 12.5px; color: var(--text-secondary); text-decoration: none;
+    padding: 5px 10px; border-radius: 7px; border: 1px solid transparent;
+  }
+  .secnav a:hover { background: var(--wash); color: var(--text-primary); border-color: var(--border); }
+
+  .eyebrow {
+    font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+    font-weight: 700; margin: 0 0 5px;
+  }
 
   button.ghost {
     font: inherit; font-size: 13px; color: var(--text-secondary);
@@ -96,10 +123,16 @@
   button.ghost:hover { background: var(--wash); color: var(--text-primary); }
 
   /* ---------- filters ---------- */
+  /* Sticky: the page is long and every section reads off these filters, so they need to stay
+     reachable without scrolling back up. */
+  .filterwrap { position: sticky; top: 0; z-index: 30; padding: 10px 0 12px; background: var(--plane); }
+  @supports (backdrop-filter: blur(8px)) {
+    .filterwrap { background: color-mix(in srgb, var(--plane) 88%, transparent); backdrop-filter: blur(8px); }
+  }
   .filters {
     display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
-    padding: 14px 16px; margin-bottom: 18px;
+    padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -18px rgba(0,0,0,.4);
   }
   .fgroup { display: flex; flex-direction: column; gap: 6px; }
   .flabel { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -108,13 +141,7 @@
     background: var(--plane); border: 1px solid var(--border);
     border-radius: 8px; padding: 7px 10px; min-width: 150px;
   }
-  input[type=search] { min-width: 220px; }
-  .seg { display: inline-flex; background: var(--plane); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
-  .seg button {
-    font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--text-secondary);
-    padding: 5px 12px; border-radius: 6px; cursor: pointer;
-  }
-  .seg button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
+  input[type=search] { min-width: 210px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
     display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12.5px;
@@ -125,61 +152,83 @@
   .chip[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); border-color: var(--baseline); font-weight: 600; }
   .chip[data-off="1"] { opacity: .45; }
 
+  /* ---------- tabs ---------- */
+  .tabbar { display: flex; gap: 22px; margin: 4px 0 20px; border-bottom: 1px solid var(--border); }
+  .tabbtn {
+    font: inherit; font-size: 13.5px; font-weight: 600; color: var(--text-secondary);
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    padding: 10px 2px; cursor: pointer; display: flex; align-items: center; gap: 7px;
+  }
+  .tabbtn[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--s-converted); }
+  .tabbadge {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+    padding: 0 5px; border-radius: 999px; background: var(--wash); color: var(--text-secondary);
+    font-size: 11px; font-weight: 700;
+  }
+
   /* ---------- KPI tiles ---------- */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 12px; margin-bottom: 18px; }
-  .kpi { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .kpi .k { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-  .kpi .v { font-size: 30px; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
-  .kpi .n { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(186px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi {
+    position: relative; overflow: hidden;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 15px 16px 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  }
+  .kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent, var(--baseline)); }
+  .kpi .k { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; font-weight: 700; }
+  .kpi .v { font-size: 32px; line-height: 1.05; font-weight: 660; letter-spacing: -0.025em; }
+  .kpi .n { font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
   .kpi .n b { font-weight: 600; color: var(--text-primary); }
 
   /* ---------- cards ---------- */
-  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 18px 16px; margin-bottom: 18px; }
-  .card h2 { font-size: 15px; margin: 0 0 3px; letter-spacing: -0.005em; }
-  .card .cap { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 16px; }
-  .two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); gap: 18px; }
-  @media (max-width: 900px) { .two { grid-template-columns: minmax(0,1fr); } }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 20px 18px; margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  }
+  .cardhead { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 3px; }
+  .cardhead .grow { flex: 1 1 260px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; letter-spacing: -0.012em; font-weight: 650; }
+  .card .cap { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 16px; max-width: 84ch; }
+  .two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 18px; align-items: start; }
+  @media (max-width: 980px) { .two { grid-template-columns: minmax(0,1fr); } }
 
-  /* ---------- ranked bars ---------- */
-  .rank { display: flex; flex-direction: column; gap: 12px; }
-  .rrow { cursor: pointer; }
-  .rhead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
-  .rname { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
-  .rname .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
-  .rval { margin-left: auto; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
-  .rpct { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-  .rtrack { height: 10px; background: var(--wash); border-radius: 4px; overflow: hidden; }
-  .rfill { height: 100%; background: var(--c); border-radius: 0 4px 4px 0; transition: width .25s ease; }
-  .rrow[data-dim="1"] { opacity: .35; }
-  .rrow:hover .rtrack { background: var(--grid); }
-  .rrow-nomatch { padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--grid); }
-  .rrow-nomatch .rname { color: var(--text-secondary); }
-  .rnote { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
-
-  /* ---------- stacked columns ---------- */
-  .cols { display: flex; align-items: flex-end; gap: 18px; height: 250px; padding-left: 40px; position: relative; }
-  .gridlines { position: absolute; inset: 0 0 0 40px; pointer-events: none; }
+  /* ---------- vertical bar charts ---------- */
+  .vchart { display: flex; align-items: flex-end; gap: 14px; height: 232px; padding-left: 44px; position: relative; }
+  .gridlines { position: absolute; inset: 0 0 0 44px; pointer-events: none; }
   .gl { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid); }
-  .gl span { position: absolute; left: -40px; top: -8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .col { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; position: relative; min-width: 0; }
-  .stack { display: flex; flex-direction: column-reverse; gap: 2px; }
-  .seg-mark { background: var(--c); min-height: 3px; }
-  .stack > .seg-mark:first-child { border-radius: 0 0 0 0; }
-  .stack > .seg-mark:last-child { border-radius: 4px 4px 0 0; }
-  .coltot { text-align: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; margin-bottom: 5px; }
-  .xaxis { display: flex; gap: 18px; padding-left: 40px; border-top: 1px solid var(--baseline); margin-top: 0; padding-top: 8px; }
-  .xlab { flex: 1 1 0; text-align: center; font-size: 12px; color: var(--text-secondary); min-width: 0; }
-  .xlab small { display: block; color: var(--muted); font-size: 11px; }
+  .gl span { position: absolute; left: -44px; top: -8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vcol { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; min-width: 0; cursor: pointer; }
+  .vval { text-align: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; margin-bottom: 5px; }
+  .vbar { background: var(--c); border-radius: 4px 4px 0 0; min-height: 3px; }
+  .vstack { display: flex; flex-direction: column-reverse; gap: 2px; }
+  .vstack > div { background: var(--c); min-height: 3px; }
+  .vstack > div:last-child { border-radius: 4px 4px 0 0; }
+  /* Secondary encoding for statuses beyond the eight validated colour slots — see SLOTS in the
+     script. Keeps two different statuses from ever reading as the same solid fill. */
+  [data-tex="1"] { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 3px, transparent 3px 8px); }
+  [data-tex="2"] { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,.35) 0 3px, transparent 3px 8px); }
+  .vcol[data-dim="1"] { opacity: .35; }
+  .vaxis { display: flex; gap: 14px; padding-left: 44px; border-top: 1px solid var(--baseline); padding-top: 8px; }
+  .vlab { flex: 1 1 0; text-align: center; font-size: 11.5px; color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
 
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 14px; }
-  .lg { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-secondary); }
-  .lg .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+  .nomatch-note {
+    margin-top: 14px; padding-top: 11px; border-top: 1px dashed var(--grid);
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .nomatch-note .nm-name { font-size: 13px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 7px; }
+  .nomatch-note .nm-name .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--s-none); }
+  .nomatch-note .nm-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .nomatch-note .nm-note { flex: 1 1 100%; font-size: 11.5px; color: var(--muted); margin: 2px 0 0; }
 
   /* ---------- tables ---------- */
-  .tscroll { overflow-x: auto; }
+  .tscroll { overflow-x: auto; border-radius: 10px; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-  th { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); cursor: pointer; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th {
+    font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+    font-weight: 700; background: var(--surface-1); border-bottom: 1px solid var(--baseline);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   tbody tr:hover { background: var(--wash); }
   .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
@@ -187,16 +236,32 @@
   td.wrapcell { white-space: normal; min-width: 160px; }
   .totrow td { font-weight: 700; border-top: 2px solid var(--baseline); border-bottom: 0; }
   .tblwrap { max-height: 560px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .tblwrap table th { position: sticky; top: 0; z-index: 1; cursor: pointer; }
   .tblwrap table th:first-child, .tblwrap table td:first-child { padding-left: 14px; }
+  .sub-pct { color: var(--muted); font-size: 11.5px; font-weight: 400; }
+  .muted-col { color: var(--muted); }
+
+  /* ---------- heatmap matrix ---------- */
+  .hm td.cell { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; border: 2px solid var(--surface-1); border-radius: 0; }
+  .hm td.cell[data-lvl="0"] { color: var(--muted); font-weight: 400; }
+  .hm td.cell[data-lvl="1"] { background: var(--hm1); color: var(--hmi1); }
+  .hm td.cell[data-lvl="2"] { background: var(--hm2); color: var(--hmi2); }
+  .hm td.cell[data-lvl="3"] { background: var(--hm3); color: var(--hmi3); }
+  .hm td.cell[data-lvl="4"] { background: var(--hm4); color: var(--hmi4); }
+  .hm td.cell[data-lvl="5"] { background: var(--hm5); color: var(--hmi5); }
+  .hm th.rowhead { text-transform: none; font-size: 12.5px; color: var(--text-primary); font-weight: 600; letter-spacing: 0; }
+  .hm .scale { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 12px; }
+  .hm .scale i { width: 26px; height: 10px; border-radius: 2px; display: inline-block; }
 
   .foot { color: var(--muted); font-size: 12px; margin-top: 26px; line-height: 1.7; }
   .foot b { color: var(--text-secondary); font-weight: 600; }
+  .warnnote { font-size: 12.5px; color: var(--text-secondary); background: var(--wash); border-left: 3px solid var(--s-onhold); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 0 0 14px; }
 
   #tip {
     position: fixed; z-index: 50; pointer-events: none; opacity: 0; transition: opacity .1s;
     background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
     box-shadow: 0 6px 24px rgba(0,0,0,.18); border-radius: 9px; padding: 9px 11px; font-size: 12.5px;
-    max-width: 260px;
+    max-width: 280px;
   }
   #tip .t { font-weight: 650; margin-bottom: 5px; }
   #tip .r { display: flex; gap: 12px; align-items: center; }
@@ -217,28 +282,25 @@
         mapped by <b>email id</b> to the lead master, then broken down by <b>leadStatus</b>.
       </p>
     </div>
-    <button class="ghost" id="themeBtn" type="button">Dark mode</button>
+    <div class="headmeta">
+      <button class="ghost" id="themeBtn" type="button">Dark mode</button>
+      <span class="stamp" id="stamp"></span>
+    </div>
   </header>
 
+  <div class="filterwrap">
   <section class="filters" aria-label="Filters">
-    <div class="fgroup">
-      <span class="flabel">Count by</span>
-      <div class="seg" id="basisSeg">
-        <button type="button" data-basis="clients" aria-pressed="true">Unique clients</button>
-        <button type="button" data-basis="tickets" aria-pressed="false">Plan approvals</button>
-      </div>
-    </div>
     <div class="fgroup">
       <span class="flabel">Month</span>
       <select id="fMonth"><option value="">All months</option></select>
     </div>
     <div class="fgroup">
-      <span class="flabel">Quarter tab</span>
-      <select id="fQuarter">
-        <option value="">Both tabs</option>
-        <option value="Q1">Plan Approval Sheet Q1</option>
-        <option value="Q2">Plan Approval Sheet Q2</option>
-      </select>
+      <span class="flabel">Platform</span>
+      <select id="fPlatform"><option value="">All platforms</option></select>
+    </div>
+    <div class="fgroup">
+      <span class="flabel">Team</span>
+      <select id="fTeam"><option value="">All teams</option></select>
     </div>
     <div class="fgroup">
       <span class="flabel">Advisor</span>
@@ -248,7 +310,7 @@
       <span class="flabel">Lead source</span>
       <select id="fSource"><option value="">All sources</option></select>
     </div>
-    <div class="fgroup" style="flex:1 1 220px">
+    <div class="fgroup" style="flex:1 1 200px">
       <span class="flabel">Search name / email / ticket</span>
       <input type="search" id="fSearch" placeholder="e.g. gmail.com, LD08267, Sagar">
     </div>
@@ -258,37 +320,130 @@
     </div>
     <button class="ghost" id="resetBtn" type="button">Reset filters</button>
   </section>
+  </div>
 
-  <section class="kpis" id="kpis"></section>
+  <div class="tabbar" role="tablist">
+    <button class="tabbtn" type="button" data-tab="overview" aria-selected="true">Dashboard</button>
+    <button class="tabbtn" type="button" data-tab="unmapped" aria-selected="false">Unmapped clients<span class="tabbadge" id="unmappedBadge">0</span></button>
+  </div>
 
-  <div class="two">
-    <section class="card">
+  <div id="panel-overview">
+    <nav class="secnav" aria-label="Jump to section">
+      <a href="#sec-status">Lead status</a>
+      <a href="#sec-team">Teams</a>
+      <a href="#sec-month">Month split</a>
+      <a href="#sec-ctype">Client type</a>
+      <a href="#sec-ctype-status">Type × status</a>
+      <a href="#sec-revenue">Revenue</a>
+      <a href="#sec-tat">Turnaround</a>
+      <a href="#sec-list">Client list</a>
+    </nav>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="card" id="sec-status">
+      <p class="eyebrow">01 — Distribution</p>
       <h2>Lead status distribution</h2>
       <p class="cap" id="distCap"></p>
-      <div class="rank" id="rank"></div>
+      <div class="vchart" id="statusChart"></div>
+      <div class="vaxis" id="statusAxis"></div>
+      <div class="nomatch-note" id="nomatchNote"></div>
     </section>
 
-    <section class="card">
-      <h2>Month-wise split</h2>
-      <p class="cap" id="monthCap"></p>
-      <div class="legend" id="legend"></div>
-      <div class="cols" id="cols"><div class="gridlines" id="gridlines"></div></div>
-      <div class="xaxis" id="xaxis"></div>
+    <div class="two" id="sec-team">
+      <section class="card">
+        <p class="eyebrow">02 — By team</p>
+        <h2>Team-wise status distribution</h2>
+        <p class="cap" id="teamChartCap"></p>
+        <div class="vchart" id="teamChart"></div>
+        <div class="vaxis" id="teamAxis"></div>
+      </section>
+
+      <section class="card">
+        <p class="eyebrow">02 — By team</p>
+        <h2>Team-wise status — table</h2>
+        <p class="cap">Same numbers as the chart on the left. Sorted by client count.</p>
+        <div class="tscroll"><table id="teamTbl"></table></div>
+      </section>
+    </div>
+
+    <section class="card hm" id="sec-month">
+      <p class="eyebrow">03 — Over time</p>
+      <h2>Month-wise lead status split</h2>
+      <p class="cap">Months across the top, lead status down the side. Cell shading is relative to the largest cell in the grid.</p>
+      <div class="tscroll"><table id="monthMatrix"></table></div>
+      <div class="scale">Fewer
+        <i style="background:var(--hm1)"></i><i style="background:var(--hm2)"></i><i style="background:var(--hm3)"></i><i style="background:var(--hm4)"></i><i style="background:var(--hm5)"></i>
+        More</div>
+    </section>
+
+    <section class="card" id="sec-ctype">
+      <p class="eyebrow">04 — Client type</p>
+      <h2>Client type distribution</h2>
+      <p class="cap" id="ctypeCap"></p>
+      <div id="ctypeWarn"></div>
+      <div class="tscroll"><table id="ctypeTbl"></table></div>
+    </section>
+
+    <section class="card" id="sec-ctype-status">
+      <p class="eyebrow">05 — Client type × status</p>
+      <h2>Client distribution — client type × lead status</h2>
+      <p class="cap">Unique client counts. Percentages are of the row (client type) total.</p>
+      <div class="tscroll"><table id="ctypeStatusTbl"></table></div>
+    </section>
+
+    <section class="card" id="sec-revenue">
+      <div class="cardhead">
+        <div class="grow">
+          <p class="eyebrow">06 — Revenue</p>
+          <h2>Revenue distribution — client type × lead status</h2>
+          <p class="cap" id="revCap"></p>
+        </div>
+        <div class="fgroup">
+          <span class="flabel">Product</span>
+          <select id="fProduct"></select>
+        </div>
+      </div>
+      <div class="tscroll"><table id="revTbl"></table></div>
+    </section>
+
+    <section class="card" id="sec-tat">
+      <div class="cardhead">
+        <div class="grow">
+          <p class="eyebrow">07 — Turnaround</p>
+          <h2>Turnaround time</h2>
+          <p class="cap" id="tatCap"></p>
+        </div>
+        <div class="fgroup">
+          <span class="flabel">Measure</span>
+          <select id="fTat">
+            <option value="tatApprove">1 — Days taken to approve plans</option>
+            <option value="tatConvert">2 — Days taken to convert clients</option>
+            <option value="tatInProcess">3 — Days taken to reach in-process</option>
+          </select>
+        </div>
+      </div>
+      <div id="tatWarn"></div>
+      <div class="tscroll" style="max-width:560px"><table id="tatTbl"></table></div>
+    </section>
+
+    <section class="card" id="sec-list">
+      <p class="eyebrow">08 — Detail</p>
+      <h2>Client list</h2>
+      <p class="cap" id="listCap"></p>
+      <div class="tblwrap"><table id="clientTbl"></table></div>
+      <div style="margin-top:12px"><button class="ghost" id="csvBtn" type="button">Download CSV of this view</button></div>
     </section>
   </div>
 
-  <section class="card">
-    <h2>Month × lead status</h2>
-    <p class="cap">Same numbers as the chart, as a table. Percentages are of the month's total.</p>
-    <div class="tscroll"><table id="crosstab"></table></div>
-  </section>
-
-  <section class="card">
-    <h2>Client list</h2>
-    <p class="cap" id="listCap"></p>
-    <div class="tblwrap"><table id="clientTbl"></table></div>
-    <div style="margin-top:12px"><button class="ghost" id="csvBtn" type="button">Download CSV of this view</button></div>
-  </section>
+  <div id="panel-unmapped" hidden>
+    <section class="card">
+      <h2>Unmapped clients</h2>
+      <p class="cap" id="unmappedCap"></p>
+      <div class="tblwrap"><table id="unmappedTbl"></table></div>
+      <div style="margin-top:12px"><button class="ghost" id="unmappedCsvBtn" type="button">Download CSV</button></div>
+    </section>
+  </div>
 
   <p class="foot" id="foot"></p>
 </div>
@@ -301,58 +456,108 @@
   "use strict";
   const DATA = JSON.parse(document.getElementById('payload').textContent);
   const ROWS = DATA.rows, META = DATA.meta;
+  const PRODUCTS = META.products || [];
 
   // Fixed identity order + color per status — never re-assigned when filters change.
+  // Eight colour slots, validated as a set for colour-blind separation against both the light and
+  // dark chart surfaces. The seven lead statuses the CRM issues today each own a fixed slot, so a
+  // status never changes colour when filters change the series count.
+  const SLOTS = ['var(--s-converted)', 'var(--s-inprocess)', 'var(--s-reassigned)', 'var(--s-onhold)',
+                 'var(--s-followup)', 'var(--s-assigned)', 'var(--s-dead)', 'var(--s-other)'];
   const STATUS = [
-    { k: 'CONVERTED',        label: 'Converted',        c: 'var(--s-converted)' },
-    { k: 'IN PROCESS',       label: 'In process',       c: 'var(--s-inprocess)' },
-    { k: 'RE-ASSIGNED',      label: 'Re-assigned',      c: 'var(--s-reassigned)' },
-    { k: 'ON HOLD',          label: 'On hold',          c: 'var(--s-onhold)' },
-    { k: 'FOLLOW UP',        label: 'Follow up',        c: 'var(--s-followup)' },
-    { k: 'ASSIGNED',         label: 'Assigned',         c: 'var(--s-assigned)' },
-    { k: 'DEAD',             label: 'Dead',             c: 'var(--s-dead)' },
-    { k: 'NOT IN LEAD DATA', label: 'Not in lead data', c: 'var(--s-none)' }
+    { k: 'CONVERTED',        label: 'Converted',        c: 'var(--s-converted)',  tex: 0 },
+    { k: 'IN PROCESS',       label: 'In process',       c: 'var(--s-inprocess)',  tex: 0 },
+    { k: 'RE-ASSIGNED',      label: 'Re-assigned',      c: 'var(--s-reassigned)', tex: 0 },
+    { k: 'ON HOLD',          label: 'On hold',          c: 'var(--s-onhold)',     tex: 0 },
+    { k: 'FOLLOW UP',        label: 'Follow up',        c: 'var(--s-followup)',   tex: 0 },
+    { k: 'ASSIGNED',         label: 'Assigned',         c: 'var(--s-assigned)',   tex: 0 },
+    { k: 'DEAD',             label: 'Dead',             c: 'var(--s-dead)',       tex: 0 },
+    { k: 'NOT IN LEAD DATA', label: 'Not in lead data', c: 'var(--s-none)',       tex: 0 }
   ];
-  // Any status present in the data but not listed above gets the spare slot.
-  ROWS.forEach(r => { if (!STATUS.some(s => s.k === r.status)) STATUS.splice(STATUS.length - 1, 0, { k: r.status, label: r.status, c: 'var(--s-other)' }); });
+  // If the CRM starts issuing a status this file has never seen, it still needs to be told apart
+  // from its neighbours. The first new one takes the spare eighth slot; further ones reuse the
+  // slots with a stripe overlay, so no two statuses can ever render as the same solid fill.
+  (() => {
+    let slot = 7;
+    [...new Set(ROWS.map(r => r.status))]
+      .filter(k => !STATUS.some(s => s.k === k))
+      .sort()
+      .forEach(k => {
+        const i = slot++;
+        STATUS.splice(STATUS.length - 1, 0,
+          { k, label: k.charAt(0) + k.slice(1).toLowerCase(), c: SLOTS[i % SLOTS.length], tex: Math.floor(i / SLOTS.length) });
+      });
+  })();
   const SMAP = Object.fromEntries(STATUS.map(s => [s.k, s]));
   const sInfo = k => SMAP[k] || { k: k, label: k, c: 'var(--s-other)' };
-  // The lead-status breakdown (bars/chart/crosstab) only ever covers matched clients — a client with
-  // no lead-master record has no status to analyze, so 'NOT IN LEAD DATA' never appears in it.
+  // The lead-status breakdown only ever covers matched clients — a client with no lead-master
+  // record has no status to analyze, so 'NOT IN LEAD DATA' never appears as a status category.
   const ANALYZE_STATUS = STATUS.filter(s => s.k !== 'NOT IN LEAD DATA');
 
   const MONTHS = [...new Set(ROWS.map(r => r.mk))].sort().map(mk => ({ mk, m: ROWS.find(r => r.mk === mk).m }));
 
+  // Client type (column H). Alpha/Beta/Gamma lead; anything else the sheet contains (the older
+  // New/Existing labels, or blanks) follows, so the table keeps working as the data evolves.
+  const CTYPE_LEAD = ['Alpha', 'Beta', 'Gamma'];
+  const UNCLASSIFIED = '(Unclassified)';
+  const ctypeOf = r => r.clientType || UNCLASSIFIED;
+  const CTYPES = (() => {
+    const seen = [...new Set(ROWS.map(ctypeOf))];
+    const lead = CTYPE_LEAD.filter(c => seen.includes(c));
+    const rest = seen.filter(c => !lead.includes(c) && c !== UNCLASSIFIED).sort();
+    return lead.concat(rest, seen.includes(UNCLASSIFIED) ? [UNCLASSIFIED] : []);
+  })();
+
+  const TAT_LABEL = {
+    tatApprove: 'days from plan raised (Date) to plan approved (Approval Date)',
+    tatConvert: 'days from plan approved to client converted (convertedDate in the lead data)',
+    tatInProcess: 'days from plan approved to the lead reaching in-process (leadInProcessDate in the lead data)'
+  };
+  const TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30];
+
   const state = {
-    basis: 'clients',
-    month: '', quarter: '', advisor: '', source: '', q: '',
-    off: new Set(),           // excluded statuses
-    sort: { key: 'mk', dir: 1 }
+    month: '', advisor: '', source: '', platform: '', team: '', q: '',
+    off: new Set(),
+    sort: { key: 'mk', dir: 1 },
+    product: 'all',
+    tat: 'tatApprove'
   };
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const pct = (n, d) => d ? (Math.round(n / d * 1000) / 10).toFixed(1) + '%' : '0%';
+  const nf = n => n.toLocaleString('en-IN');
+  // Indian short-form money, so wide tables stay readable; full value goes in the cell title.
+  function money(n) {
+    if (!n) return '–';
+    const a = Math.abs(n), sign = n < 0 ? '-' : '';
+    if (a >= 1e7) return sign + '₹' + (a / 1e7).toFixed(2) + ' Cr';
+    if (a >= 1e5) return sign + '₹' + (a / 1e5).toFixed(2) + ' L';
+    return sign + '₹' + Math.round(a).toLocaleString('en-IN');
+  }
+  const moneyFull = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const revOf = r => state.product === 'all'
+    ? PRODUCTS.reduce((a, p) => a + (r.rev[p.k] || 0), 0)
+    : (r.rev[state.product] || 0);
 
   // ---------- filtering ----------
   function baseRows() {
     const q = state.q.trim().toLowerCase();
     return ROWS.filter(r =>
       (!state.month || r.mk === state.month) &&
-      (!state.quarter || r.q === state.quarter) &&
       (!state.advisor || r.advisor === state.advisor) &&
       (!state.source || r.src === state.source) &&
+      (!state.platform || r.platform === state.platform) &&
+      (!state.team || r.team === state.team) &&
       (!q || (r.name + ' ' + r.email + ' ' + r.ticket + ' ' + r.advisor + ' ' + r.rm).toLowerCase().includes(q))
     );
   }
-  // One record per client email (latest approval kept) when basis = clients.
+  // One record per client email (latest approval kept).
   function dedupe(rows) {
     const by = new Map();
     for (const r of rows) {
       const prev = by.get(r.key);
-      if (!prev || (r.mk + r.date + r.ticket) > (prev.mk + prev.date + prev.ticket)) {
-        by.set(r.key, r);
-      }
+      if (!prev || (r.mk + r.date + r.ticket) > (prev.mk + prev.date + prev.ticket)) by.set(r.key, r);
     }
     const out = [...by.values()];
     const counts = new Map();
@@ -360,123 +565,249 @@
     out.forEach(r => r._n = counts.get(r.key));
     return out;
   }
-  function selAll() {
-    let rows = baseRows();
-    return state.basis === 'clients' ? dedupe(rows) : rows.map(r => Object.assign({ _n: 1 }, r));
+  const selAll = () => dedupe(baseRows());
+  const statusVisible = r => !r.matched || !state.off.has(r.status);
+
+  // ---------- generic vertical bar chart ----------
+  // series: [{ key, label, color, value }] for simple bars, or parts[] for stacked columns.
+  function drawBars(chartEl, axisEl, cols, opts) {
+    opts = opts || {};
+    const max = Math.max(1, ...cols.map(c => c.total));
+    const step = max <= 10 ? 2 : max <= 20 ? 5 : max <= 60 ? 20 : max <= 150 ? 50 : max <= 400 ? 100 : 200;
+    const top = Math.ceil(max / step) * step || step;
+    let gl = '';
+    for (let v = 0; v <= top; v += step) gl += '<div class="gl" style="bottom:' + (v / top * 100) + '%"><span>' + v + '</span></div>';
+    chartEl.innerHTML = '<div class="gridlines">' + gl + '</div>' + cols.map(c => {
+      const inner = c.parts
+        ? '<div class="vstack" style="height:100%">' + c.parts.filter(p => p.n > 0).map(p =>
+            '<div data-key="' + esc(c.key) + '" data-status="' + esc(p.k) + '" data-tex="' + (p.tex || 0) + '" style="--c:' + p.c + ';flex:' + p.n + ' 1 0"></div>').join('') + '</div>'
+        : '<div class="vbar" data-tex="' + (c.tex || 0) + '" style="--c:' + c.color + ';height:100%"></div>';
+      return '<div class="vcol" data-chart="' + esc(opts.name || '') + '" data-key="' + esc(c.key) + '" data-dim="' + (c.dim ? 1 : 0) + '">' +
+        (c.total ? '<div class="vval">' + nf(c.total) + '</div>' : '<div class="vval">0</div>') +
+        '<div style="height:' + (c.total / top * 100) + '%;display:flex;flex-direction:column;justify-content:flex-end">' + inner + '</div>' +
+        '</div>';
+    }).join('');
+    axisEl.innerHTML = cols.map(c => '<div class="vlab">' + esc(c.label) + '</div>').join('');
   }
 
   // ---------- render ----------
   function render() {
-    const sel = selAll();                                        // everyone in the current filter scope (matched + unmatched)
-    const matchedAll = sel.filter(r => r.matched);                // has a lead-status record — the analyzable population
-    const notMatchedAll = sel.filter(r => !r.matched);            // no lead-status record — shown, never analyzed
-    const rows = matchedAll.filter(r => !state.off.has(r.status)); // feeds the analysis: bars/chart/crosstab
-    const listRows = sel.filter(r => !r.matched || !state.off.has(r.status)); // feeds the client list — unmatched always included
+    const sel = selAll();
+    const matchedAll = sel.filter(r => r.matched);
+    const notMatchedAll = sel.filter(r => !r.matched);
+    const rows = matchedAll.filter(r => !state.off.has(r.status));   // analysis population
+    const listRows = sel.filter(statusVisible);
     const total = rows.length;
-    const unit = state.basis === 'clients' ? 'clients' : 'plan approvals';
-
-    // KPIs
-    const cnt = k => rows.filter(r => r.status === k).length;
-    const ticketsAll = baseRows().length, clientsAll = dedupe(baseRows()).length;
-    $('kpis').innerHTML = [
-      { k: 'Plan approvals', v: ticketsAll, n: 'rows on the two Plan Approval tabs' },
-      { k: 'Unique clients', v: clientsAll, n: 'distinct email ids · ' + (ticketsAll - clientsAll) + ' repeat approvals' },
-      { k: 'Mapped to lead data', v: matchedAll.length, n: '<b>' + pct(matchedAll.length, sel.length) + '</b> of ' + sel.length + ' ' + unit + ' matched by email' },
-      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of matched ' + unit },
-      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of matched ' + unit }
-    ].map(t => '<div class="kpi"><div class="k">' + t.k + '</div><div class="v">' + t.v.toLocaleString('en-IN') + '</div><div class="n">' + t.n + '</div></div>').join('');
-
-    // Ranked distribution — matched clients only, built from `matchedAll` so toggled-off statuses stay
-    // visible (dimmed) and clickable. Unmatched clients get one separate, non-interactive line below:
-    // shown for completeness, excluded from the percentages since there's no status to analyze.
-    const counts = ANALYZE_STATUS.map(s => ({ s, n: matchedAll.filter(r => r.status === s.k).length })).filter(d => d.n > 0);
-    counts.sort((a, b) => b.n - a.n);
-    const max = Math.max(1, ...counts.map(d => d.n));
-    const denom = matchedAll.length;
-    $('distCap').innerHTML = 'Out of <b>' + denom + '</b> matched ' + unit + ' (' + pct(denom, sel.length) + ' of ' + sel.length + ' total in the current selection). Click a bar to exclude that status.';
-    $('rank').innerHTML = counts.map(d =>
-      '<div class="rrow" data-status="' + esc(d.s.k) + '" data-dim="' + (state.off.has(d.s.k) ? 1 : 0) + '" style="--c:' + d.s.c + '">' +
-        '<div class="rhead"><span class="rname"><i class="dot"></i>' + esc(d.s.label) + '</span>' +
-        '<span class="rval">' + d.n + '</span><span class="rpct">' + pct(d.n, denom) + '</span></div>' +
-        '<div class="rtrack"><div class="rfill" style="width:' + (d.n / max * 100) + '%"></div></div>' +
-      '</div>').join('') +
-      (notMatchedAll.length ? '<div class="rrow-nomatch"><div class="rhead"><span class="rname"><i class="dot" style="background:var(--s-none)"></i>Not matched to lead data</span>' +
-        '<span class="rval">' + notMatchedAll.length + '</span><span class="rpct">' + pct(notMatchedAll.length, sel.length) + ' of all</span></div>' +
-        '<p class="rnote">No lead-master record for this email — listed below, not included in the breakdown above.</p></div>' : '');
-
-    // Month-wise stacked columns — matched clients only (same population as the ranked bars above).
-    const months = MONTHS.filter(m => !state.month || m.mk === state.month);
     const present = ANALYZE_STATUS.filter(s => rows.some(r => r.status === s.k));
-    const series = months.map(m => {
-      const mr = rows.filter(r => r.mk === m.mk);
-      const notMatched = notMatchedAll.filter(r => r.mk === m.mk).length;
-      return { m, total: mr.length, notMatched, parts: present.map(s => ({ s, n: mr.filter(r => r.status === s.k).length })) };
+
+    // ----- KPIs -----
+    const cnt = k => rows.filter(r => r.status === k).length;
+    const ticketsAll = baseRows().length;
+    $('kpis').innerHTML = [
+      { k: 'Plan approvals', v: ticketsAll, n: 'rows on the two Plan Approval tabs', a: 'var(--baseline)' },
+      { k: 'Unique clients', v: sel.length, n: 'distinct email ids · ' + (ticketsAll - sel.length) + ' repeat approvals', a: 'var(--baseline)' },
+      { k: 'Mapped to lead data', v: matchedAll.length, n: '<b>' + pct(matchedAll.length, sel.length) + '</b> of ' + sel.length + ' clients matched by email', a: 'var(--s-none)' },
+      { k: 'Converted', v: cnt('CONVERTED'), n: '<b>' + pct(cnt('CONVERTED'), total) + '</b> of matched clients', a: 'var(--s-converted)' },
+      { k: 'In process', v: cnt('IN PROCESS'), n: '<b>' + pct(cnt('IN PROCESS'), total) + '</b> of matched clients', a: 'var(--s-inprocess)' }
+    ].map(t => '<div class="kpi" style="--accent:' + t.a + '"><div class="k">' + t.k + '</div><div class="v">' + nf(t.v) + '</div><div class="n">' + t.n + '</div></div>').join('');
+
+    // ----- Lead status distribution (vertical bars, x = lead status) -----
+    const statusCols = ANALYZE_STATUS
+      .map(s => ({ key: s.k, label: s.label, color: s.c, tex: s.tex, total: matchedAll.filter(r => r.status === s.k).length, dim: state.off.has(s.k) }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total);
+    $('distCap').innerHTML = 'Unique clients by lead status, out of <b>' + matchedAll.length + '</b> matched clients (' +
+      pct(matchedAll.length, sel.length) + ' of ' + sel.length + ' in the current selection). Click a bar to exclude that status.';
+    drawBars($('statusChart'), $('statusAxis'), statusCols, { name: 'status' });
+    $('nomatchNote').innerHTML = notMatchedAll.length
+      ? '<span class="nm-name"><i class="dot"></i>Not matched to lead data</span><span class="nm-val">' + notMatchedAll.length +
+        '</span><span class="sub-pct">' + pct(notMatchedAll.length, sel.length) + ' of all</span>' +
+        '<p class="nm-note">No lead-master record for these emails, so they have no status — see the "Unmapped clients" tab. Excluded from every breakdown on this page.</p>'
+      : '';
+
+    // ----- Team-wise status distribution -----
+    const teams = [...new Set(rows.map(r => r.team))]
+      .map(t => ({ t, n: rows.filter(r => r.team === t).length }))
+      .sort((a, b) => b.n - a.n).map(x => x.t);
+    const teamCols = teams.map(t => {
+      const tr = rows.filter(r => r.team === t);
+      return { key: t, label: t, total: tr.length, parts: present.map(s => ({ k: s.k, c: s.c, tex: s.tex, n: tr.filter(r => r.status === s.k).length })) };
     });
-    const cmax = Math.max(1, ...series.map(d => d.total));
-    const step = cmax <= 20 ? 5 : cmax <= 60 ? 20 : cmax <= 150 ? 50 : 100;
-    const top = Math.ceil(cmax / step) * step || step;
-    let gl = '';
-    for (let v = 0; v <= top; v += step) gl += '<div class="gl" style="bottom:' + (v / top * 100) + '%"><span>' + v + '</span></div>';
+    $('teamChartCap').innerHTML = 'Matched clients per team, stacked by lead status. Team comes from the RM on the lead record, via the employee reference sheet.';
+    drawBars($('teamChart'), $('teamAxis'), teamCols, { name: 'team' });
 
-    $('monthCap').innerHTML = 'Stacked count of matched ' + unit + ' per approval month' +
-      (state.basis === 'clients' ? ' (a repeat client is counted once, in their latest approval month).' : '.') +
-      ' Unmatched clients are excluded from this chart — see "Not matched" in the table below.';
-    $('legend').innerHTML = present.map(s => '<span class="lg" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</span>').join('');
-    $('cols').innerHTML = '<div class="gridlines">' + gl + '</div>' + series.map(d =>
-      '<div class="col">' + (d.total ? '<div class="coltot">' + d.total + '</div>' : '') +
-        '<div class="stack" data-mk="' + d.m.mk + '" style="height:' + (d.total / top * 100) + '%">' +
-        d.parts.filter(p => p.n > 0).map(p =>
-          '<div class="seg-mark" data-mk="' + d.m.mk + '" data-status="' + esc(p.s.k) + '" style="--c:' + p.s.c + ';flex:' + p.n + ' 1 0"></div>').join('') +
-      '</div></div>').join('');
-    $('xaxis').innerHTML = series.map(d => '<div class="xlab">' + esc(d.m.m) + '</div>').join('');
+    $('teamTbl').innerHTML =
+      '<thead><tr><th>Team</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+      teamCols.map(c => '<tr><td>' + esc(c.label) + '</td>' +
+        c.parts.map(p => '<td class="num">' + (p.n || '–') + '</td>').join('') +
+        '<td class="num">' + c.total + '</td></tr>').join('') +
+      '<tr class="totrow"><td>All teams</td>' +
+      present.map(s => '<td class="num">' + rows.filter(r => r.status === s.k).length + '</td>').join('') +
+      '<td class="num">' + total + '</td></tr></tbody>';
 
-    // Crosstab
-    const head = '<thead><tr><th>Month</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') +
-      '<th class="num">Matched total</th><th class="num" style="color:var(--muted)">Not matched</th></tr></thead>';
-    const body = series.map(d => '<tr><td>' + esc(d.m.m) + '</td>' +
-      d.parts.map(p => '<td class="num">' + (p.n || '–') + (p.n ? ' <span style="color:var(--muted);font-size:11.5px">' + pct(p.n, d.total) + '</span>' : '') + '</td>').join('') +
-      '<td class="num">' + d.total + '</td><td class="num" style="color:var(--muted)">' + (d.notMatched || '–') + '</td></tr>').join('');
-    const tot = present.map(s => rows.filter(r => r.status === s.k).length);
-    const foot = '<tr class="totrow"><td>All months</td>' + tot.map(n => '<td class="num">' + n + ' <span style="color:var(--muted);font-size:11.5px;font-weight:400">' + pct(n, total) + '</span></td>').join('') +
-      '<td class="num">' + total + '</td><td class="num" style="color:var(--muted);font-weight:400">' + notMatchedAll.length + '</td></tr>';
-    $('crosstab').innerHTML = head + '<tbody>' + body + foot + '</tbody>';
+    // ----- Month-wise matrix (months = columns, status = rows) -----
+    const months = MONTHS.filter(m => !state.month || m.mk === state.month);
+    const cellVals = [];
+    present.forEach(s => months.forEach(m => cellVals.push(rows.filter(r => r.status === s.k && r.mk === m.mk).length)));
+    const cellMax = Math.max(1, ...cellVals);
+    const lvl = n => n === 0 ? 0 : Math.min(5, Math.max(1, Math.ceil(n / cellMax * 5)));
+    $('monthMatrix').innerHTML =
+      '<thead><tr><th>Lead status</th>' + months.map(m => '<th class="num">' + esc(m.m) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+      present.map(s => {
+        const cells = months.map(m => rows.filter(r => r.status === s.k && r.mk === m.mk).length);
+        return '<tr><th class="rowhead">' + esc(s.label) + '</th>' +
+          cells.map((n, i) => '<td class="cell" data-lvl="' + lvl(n) + '" title="' + esc(s.label) + ' · ' + esc(months[i].m) + ': ' + n + '">' + (n || '–') + '</td>').join('') +
+          '<td class="num">' + cells.reduce((a, b) => a + b, 0) + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All statuses</td>' +
+      months.map(m => '<td class="num">' + rows.filter(r => r.mk === m.mk).length + '</td>').join('') +
+      '<td class="num">' + total + '</td></tr>' +
+      (notMatchedAll.length ? '<tr><td class="muted-col">Not matched</td>' +
+        months.map(m => '<td class="num muted-col">' + (notMatchedAll.filter(r => r.mk === m.mk).length || '–') + '</td>').join('') +
+        '<td class="num muted-col">' + notMatchedAll.length + '</td></tr>' : '') +
+      '</tbody>';
 
-    // Client list
+    // ----- Client type distribution -----
+    const ctypesPresent = CTYPES.filter(c => sel.some(r => ctypeOf(r) === c));
+    const abgTotal = sel.filter(r => CTYPE_LEAD.includes(ctypeOf(r))).length;
+    $('ctypeCap').innerHTML = 'Unique clients by <b>Client Type</b> (column H of the plan approval sheets). Percentages are of ' + sel.length + ' clients in the current selection.';
+    $('ctypeWarn').innerHTML = (abgTotal < sel.length)
+      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sel.length + ' clients here. The classification only starts partway through the data — earlier rows still carry the older <b>New / Existing</b> labels or are blank, so they are listed separately rather than being folded into a bucket they were never assigned.</p>'
+      : '';
+    $('ctypeTbl').innerHTML =
+      '<thead><tr><th>Client type</th><th class="num">Clients</th><th class="num">% of all</th><th class="num">Matched</th><th class="num">Not matched</th></tr></thead><tbody>' +
+      ctypesPresent.map(c => {
+        const cr = sel.filter(r => ctypeOf(r) === c);
+        return '<tr><td>' + esc(c) + '</td><td class="num">' + cr.length + '</td><td class="num">' + pct(cr.length, sel.length) +
+          '</td><td class="num">' + cr.filter(r => r.matched).length + '</td><td class="num muted-col">' + (cr.filter(r => !r.matched).length || '–') + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All client types</td><td class="num">' + sel.length + '</td><td class="num">100%</td><td class="num">' +
+      matchedAll.length + '</td><td class="num">' + notMatchedAll.length + '</td></tr></tbody>';
+
+    // ----- Client distribution: client type x lead status -----
+    const ctHead = '<thead><tr><th>Client type</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') +
+      '<th class="num">Matched total</th><th class="num muted-col">Not matched</th></tr></thead>';
+    $('ctypeStatusTbl').innerHTML = ctHead + '<tbody>' +
+      ctypesPresent.map(c => {
+        const cr = rows.filter(r => ctypeOf(r) === c);
+        const nm = notMatchedAll.filter(r => ctypeOf(r) === c).length;
+        return '<tr><td>' + esc(c) + '</td>' +
+          present.map(s => {
+            const n = cr.filter(r => r.status === s.k).length;
+            return '<td class="num">' + (n || '–') + (n ? ' <span class="sub-pct">' + pct(n, cr.length) + '</span>' : '') + '</td>';
+          }).join('') +
+          '<td class="num">' + cr.length + '</td><td class="num muted-col">' + (nm || '–') + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All client types</td>' +
+      present.map(s => '<td class="num">' + rows.filter(r => r.status === s.k).length + '</td>').join('') +
+      '<td class="num">' + total + '</td><td class="num">' + notMatchedAll.length + '</td></tr></tbody>';
+
+    // ----- Revenue distribution: client type x lead status -----
+    // Revenue is a per-approval figure, so it sums over every plan approval in scope rather than
+    // the de-duplicated client list (which would drop a repeat client's earlier plans).
+    const revRows = baseRows().filter(statusVisible);
+    const prodLabel = state.product === 'all' ? 'All products (sum)' : (PRODUCTS.find(p => p.k === state.product) || {}).label;
+    const revTotal = revRows.reduce((a, r) => a + revOf(r), 0);
+    $('revCap').innerHTML = 'Showing <b>' + esc(prodLabel) + '</b>, summed across <b>' + revRows.length +
+      '</b> plan approvals (not de-duplicated by client — a client with two approved plans contributes both). Grand total ' + moneyFull(revTotal) + '.';
+    $('revTbl').innerHTML = ctHead + '<tbody>' +
+      ctypesPresent.map(c => {
+        const cr = revRows.filter(r => ctypeOf(r) === c);
+        const rowTot = cr.filter(r => r.matched).reduce((a, r) => a + revOf(r), 0);
+        const nmVal = cr.filter(r => !r.matched).reduce((a, r) => a + revOf(r), 0);
+        return '<tr><td>' + esc(c) + '</td>' +
+          present.map(s => {
+            const v = cr.filter(r => r.status === s.k).reduce((a, r) => a + revOf(r), 0);
+            return '<td class="num" title="' + moneyFull(v) + '">' + money(v) + '</td>';
+          }).join('') +
+          '<td class="num" title="' + moneyFull(rowTot) + '">' + money(rowTot) + '</td>' +
+          '<td class="num muted-col" title="' + moneyFull(nmVal) + '">' + money(nmVal) + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All client types</td>' +
+      present.map(s => {
+        const v = revRows.filter(r => r.matched && r.status === s.k).reduce((a, r) => a + revOf(r), 0);
+        return '<td class="num" title="' + moneyFull(v) + '">' + money(v) + '</td>';
+      }).join('') +
+      '<td class="num" title="' + moneyFull(revRows.filter(r => r.matched).reduce((a, r) => a + revOf(r), 0)) + '">' + money(revRows.filter(r => r.matched).reduce((a, r) => a + revOf(r), 0)) + '</td>' +
+      '<td class="num" title="' + moneyFull(revRows.filter(r => !r.matched).reduce((a, r) => a + revOf(r), 0)) + '">' + money(revRows.filter(r => !r.matched).reduce((a, r) => a + revOf(r), 0)) + '</td></tr></tbody>';
+
+    // ----- Turnaround time -----
+    // Rows where the event predates the approval (negative gap) are held out of the denominator:
+    // e.g. an existing client who converted in 2022 and had a plan approved in 2026 did not take
+    // "-1516 days to convert" — the approval simply is not what drove that conversion. Leaving them
+    // in would inflate the denominator and understate every percentage.
+    const tatRows = baseRows().filter(statusVisible);
+    const raw = tatRows.map(r => r[state.tat]).filter(v => v !== null && v !== undefined);
+    const vals = raw.filter(v => v >= 0);
+    const denom = vals.length, negCount = raw.length - vals.length, missing = tatRows.length - raw.length;
+    $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
+    const notes = [];
+    if (missing) notes.push('<b>' + missing + '</b> of ' + tatRows.length + ' plans in scope are missing one of the two dates');
+    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> the plan was approved (typically an existing client who converted earlier)');
+    $('tatWarn').innerHTML = denom === 0
+      ? '<p class="warnnote">No plan in the current selection has a usable value for this measure, so there is nothing to count. That usually means the source date column is empty in the export rather than that the turnaround was zero.</p>'
+      : (notes.length
+        ? '<p class="warnnote">' + notes.join('; and ') + '. Those are excluded from the <b>' + denom + '</b> plans measured below rather than counted as zero.</p>'
+        : '');
+    const med = denom ? vals.slice().sort((a, b) => a - b)[Math.floor(denom / 2)] : null;
+    $('tatTbl').innerHTML =
+      '<thead><tr><th>Interval</th><th class="num">Plan count</th><th class="num">% of total plans</th></tr></thead><tbody>' +
+      TAT_BUCKETS.map(b => {
+        const n = vals.filter(v => v > b).length;
+        return '<tr><td>&gt; ' + b + (b === 1 ? ' Day' : ' Days') + '</td><td class="num">' + n + '</td><td class="num">' + pct(n, denom) + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>Plans measured</td><td class="num">' + denom + '</td><td class="num">' +
+      (med === null ? '–' : 'median ' + med + 'd') + '</td></tr></tbody>';
+
+    // ----- Client list -----
     const cols = [
       { k: 'm', t: 'Month' }, { k: 'ticket', t: 'Ticket' }, { k: 'name', t: 'Client' },
-      { k: 'email', t: 'Email id' }, { k: 'status', t: 'Lead status' }, { k: 'advisor', t: 'Advisor' },
-      { k: 'rm', t: 'Current RM' }, { k: 'src', t: 'Lead source' }, { k: 'created', t: 'Lead created' },
+      { k: 'email', t: 'Email id' }, { k: 'status', t: 'Lead status' }, { k: 'clientType', t: 'Client type' },
+      { k: 'team', t: 'Team' }, { k: 'advisor', t: 'Advisor' }, { k: 'rm', t: 'Current RM' },
+      { k: 'platform', t: 'Platform' }, { k: 'src', t: 'Lead source' }, { k: 'created', t: 'Lead created' },
       { k: 'converted', t: 'Converted on' }, { k: 'appr', t: 'Approved by' }
     ];
     const sorted = listRows.slice().sort((a, b) => {
       const k = state.sort.key, d = state.sort.dir;
-      const av = (k === 'm' ? a.mk + a.date : String(a[k] || '')).toLowerCase();
-      const bv = (k === 'm' ? b.mk + b.date : String(b[k] || '')).toLowerCase();
+      const av = (k === 'm' ? a.mk + a.date : String(a[k] == null ? '' : a[k])).toLowerCase();
+      const bv = (k === 'm' ? b.mk + b.date : String(b[k] == null ? '' : b[k])).toLowerCase();
       return av < bv ? -d : av > bv ? d : 0;
     });
-    $('listCap').innerHTML = 'Showing <b>' + listRows.length + '</b> ' + unit +
-      (state.basis === 'clients' ? ' — one row per email id, latest plan approval shown; <b>#</b> is how many approvals that client has.' : ' — one row per plan-approval ticket.') +
-      ' Includes unmatched clients (grey "Not in lead data" status) — listed here, excluded from the analysis above.';
+    $('listCap').innerHTML = 'Showing <b>' + listRows.length + '</b> clients — one row per email id, latest plan approval shown; <b>#</b> is how many approvals that client has. ' +
+      'Includes unmatched clients (grey "Not in lead data" status), which are listed here but excluded from the analysis above.';
     $('clientTbl').innerHTML =
       '<thead><tr>' + cols.map(c => '<th data-key="' + c.k + '">' + c.t + (state.sort.key === c.k ? (state.sort.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>').join('') +
-      (state.basis === 'clients' ? '<th class="num">#</th>' : '') + '</tr></thead><tbody>' +
+      '<th class="num">#</th></tr></thead><tbody>' +
       sorted.map(r => '<tr>' + cols.map(c => {
-        if (c.k === 'status') { const s = sInfo(r.status); return '<td><span class="pill" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</span></td>'; }
+        if (c.k === 'status') { const s = sInfo(r.status); return '<td><span class="pill" style="--c:' + s.c + '"><i class="dot" data-tex="' + (s.tex || 0) + '"></i>' + esc(s.label) + '</span></td>'; }
         if (c.k === 'name') return '<td class="wrapcell">' + esc(r.name) + '</td>';
         return '<td>' + esc(r[c.k] || '–') + '</td>';
-      }).join('') + (state.basis === 'clients' ? '<td class="num">' + r._n + '</td>' : '') + '</tr>').join('') +
+      }).join('') + '<td class="num">' + r._n + '</td></tr>').join('') +
       '</tbody>';
 
-    // Status chips — real statuses only (this narrows the analysis above; unmatched clients have no chip
-    // since there is nothing to include/exclude them by — they always stay in the client list).
+    // ----- Unmapped clients tab -----
+    $('unmappedBadge').textContent = notMatchedAll.length;
+    $('unmappedCap').innerHTML = 'Showing <b>' + notMatchedAll.length + '</b> clients with no matching lead-master record (in the current filter selection). Verify or create their lead record, then re-run the dashboard build.';
+    const ucols = [
+      { k: 'date', t: 'Date' }, { k: 'ticket', t: 'Ticket ID' }, { k: 'clientType', t: 'Client type' },
+      { k: 'name', t: 'Client name' }, { k: 'email', t: 'Client mail ID' }, { k: 'advisor', t: 'Advisor' }, { k: 'appr', t: 'Approved by' }
+    ];
+    const usorted = notMatchedAll.slice().sort((a, b) => (a.mk + a.date) < (b.mk + b.date) ? -1 : (a.mk + a.date) > (b.mk + b.date) ? 1 : 0);
+    $('unmappedTbl').innerHTML =
+      '<thead><tr>' + ucols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
+      usorted.map(r => '<tr>' + ucols.map(c => '<td' + (c.k === 'name' ? ' class="wrapcell"' : '') + '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('') +
+      '</tbody>';
+
+    // ----- Status chips -----
     $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => ROWS.some(r => r.status === s.k)).map(s =>
-      '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) + '</button>').join('');
+      '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot" data-tex="' + (s.tex || 0) + '"></i>' + esc(s.label) + '</button>').join('');
 
     $('foot').innerHTML =
       '<b>Sources.</b> Client universe: ' + esc(META.dashFile) + ' → tabs ' + META.tabs.map(t => '<code>' + esc(t) + '</code>').join(' + ') + ' (' + ROWS.length + ' approval rows, ' +
-      new Set(ROWS.map(r => r.key)).size + ' unique email ids). Lead statuses: ' + esc(META.leadFile) + ' (' + META.leadRows.toLocaleString('en-IN') + ' leads), joined on <code>Email Id</code> = <code>userId</code>, case-insensitive.<br>' +
-      '<b>Not matched</b> = the plan-approval email has no matching row in the lead export, so no leadStatus exists for it. These clients are listed in the table above but excluded from the status breakdown, chart and crosstab, since there is nothing to analyze.<br>' +
-      'Built ' + esc(META.generated) + '. This file is regenerated by <code>tools/build_dashboard.py</code> — do not edit by hand, and do not commit/push it (it is git-ignored).';
+      new Set(ROWS.map(r => r.key)).size + ' unique email ids). Lead statuses, platform and RM: ' + esc(META.leadFile) + ' (' + nf(META.leadRows) + ' leads), joined on <code>Email Id</code> = <code>userId</code> ' +
+      '(case-insensitive, all whitespace and invisible characters stripped from both sides). Team: ' + esc(META.empFile || 'employee reference sheet') + ', joined on RM name.<br>' +
+      '<b>Not matched</b> = the plan-approval email has no matching row in the lead export, so no leadStatus exists for it. Listed in the client list and the Unmapped clients tab, excluded from every breakdown.<br>' +
+      'Built ' + esc(META.generated) + '. Regenerated by <code>tools/build_dashboard.py</code> — do not edit by hand, and do not commit/push it (it is git-ignored).';
   }
 
   // ---------- tooltips ----------
@@ -492,44 +823,48 @@
   const hideTip = () => { tip.style.opacity = 0; };
 
   document.addEventListener('mousemove', e => {
-    const seg = e.target.closest('.seg-mark');
-    const row = e.target.closest('.rrow');
+    const seg = e.target.closest('.vstack > div');
+    const col = e.target.closest('.vcol');
+    if (!col) { hideTip(); return; }
+    const sel = selAll(), matchedAll = sel.filter(r => r.matched);
+    const rows = matchedAll.filter(r => !state.off.has(r.status));
     if (seg) {
-      const rows = selAll().filter(r => r.matched && !state.off.has(r.status));
-      const mk = seg.dataset.mk, st = seg.dataset.status, s = sInfo(st);
-      const mr = rows.filter(r => r.mk === mk);
-      const n = mr.filter(r => r.status === st).length;
-      const m = MONTHS.find(x => x.mk === mk);
-      showTip('<div class="t">' + esc(m.m) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
-        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, mr.length) + ' of ' + mr.length + ' matched in this month</div>', e);
-    } else if (row) {
-      const st = row.dataset.status, s = sInfo(st);
-      const matchedAll = selAll().filter(r => r.matched);
+      const team = seg.dataset.key, st = seg.dataset.status, s = sInfo(st);
+      const tr = rows.filter(r => r.team === team);
+      const n = tr.filter(r => r.status === st).length;
+      showTip('<div class="t">' + esc(team) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, tr.length) + ' of ' + tr.length + ' in this team</div>', e);
+    } else if (col.dataset.chart === 'status') {
+      const st = col.dataset.key, s = sInfo(st);
       const n = matchedAll.filter(r => r.status === st).length;
-      showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' +
-        (state.basis === 'clients' ? 'Clients' : 'Approvals') + '<span class="v">' + n + '</span></div><div class="m">' +
-        pct(n, matchedAll.length) + ' of matched · click to ' + (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+      showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>Clients' +
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, matchedAll.length) + ' of matched · click to ' +
+        (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+    } else if (col.dataset.chart === 'team') {
+      const team = col.dataset.key;
+      const n = rows.filter(r => r.team === team).length;
+      showTip('<div class="t">' + esc(team) + '</div><div class="m">' + n + ' matched clients · ' + pct(n, rows.length) + ' of all matched</div>', e);
     } else hideTip();
   });
 
   // ---------- events ----------
-  $('basisSeg').addEventListener('click', e => {
-    const b = e.target.closest('button[data-basis]'); if (!b) return;
-    state.basis = b.dataset.basis;
-    [...e.currentTarget.children].forEach(x => x.setAttribute('aria-pressed', x === b));
-    render();
-  });
-  ['fMonth', 'fQuarter', 'fAdvisor', 'fSource'].forEach(id => $(id).addEventListener('change', e => {
-    state[{ fMonth: 'month', fQuarter: 'quarter', fAdvisor: 'advisor', fSource: 'source' }[id]] = e.target.value; render();
+  document.querySelectorAll('.tabbtn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabbtn').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    $('panel-overview').hidden = b.dataset.tab !== 'overview';
+    $('panel-unmapped').hidden = b.dataset.tab !== 'unmapped';
   }));
+  const FILTER_IDS = { fMonth: 'month', fAdvisor: 'advisor', fSource: 'source', fPlatform: 'platform', fTeam: 'team' };
+  Object.keys(FILTER_IDS).forEach(id => $(id).addEventListener('change', e => { state[FILTER_IDS[id]] = e.target.value; render(); }));
   $('fSearch').addEventListener('input', e => { state.q = e.target.value; render(); });
+  $('fProduct').addEventListener('change', e => { state.product = e.target.value; render(); });
+  $('fTat').addEventListener('change', e => { state.tat = e.target.value; render(); });
   $('statusChips').addEventListener('click', e => {
     const c = e.target.closest('.chip'); if (!c) return;
     const k = c.dataset.status; state.off.has(k) ? state.off.delete(k) : state.off.add(k); render();
   });
-  $('rank').addEventListener('click', e => {
-    const r = e.target.closest('.rrow'); if (!r) return;
-    const k = r.dataset.status; state.off.has(k) ? state.off.delete(k) : state.off.add(k); render();
+  $('statusChart').addEventListener('click', e => {
+    const col = e.target.closest('.vcol'); if (!col) return;
+    const k = col.dataset.key; state.off.has(k) ? state.off.delete(k) : state.off.add(k); render();
   });
   $('clientTbl').addEventListener('click', e => {
     const th = e.target.closest('th[data-key]'); if (!th) return;
@@ -538,21 +873,30 @@
     render();
   });
   $('resetBtn').addEventListener('click', () => {
-    Object.assign(state, { month: '', quarter: '', advisor: '', source: '', q: '' });
+    Object.assign(state, { month: '', advisor: '', source: '', platform: '', team: '', q: '' });
     state.off.clear();
-    $('fMonth').value = ''; $('fQuarter').value = ''; $('fAdvisor').value = ''; $('fSource').value = ''; $('fSearch').value = '';
+    Object.keys(FILTER_IDS).forEach(id => $(id).value = '');
+    $('fSearch').value = '';
     render();
   });
   $('csvBtn').addEventListener('click', () => {
-    const sel = selAll();
-    const rows = sel.filter(r => !r.matched || !state.off.has(r.status));
-    const cols = ['m', 'date', 'q', 'ticket', 'name', 'email', 'status', 'advisor', 'rm', 'src', 'created', 'lastStatus', 'converted', 'appr', 'verdict'];
-    const head = ['Month', 'Date', 'Tab', 'Ticket Id', 'Client Name', 'Email Id', 'Lead Status', 'Advisor', 'Current RM', 'Lead Source', 'Lead Created', 'Last Status Date', 'Converted On', 'Approved By', 'Approved/Rejected'];
-    const csv = [head.join(',')].concat(rows.map(r => cols.map(c => '"' + String(r[c] == null ? '' : r[c]).replace(/"/g, '""') + '"').join(','))).join('\r\n');
+    const rows = selAll().filter(statusVisible);
+    const cols = ['m', 'date', 'q', 'ticket', 'name', 'email', 'status', 'clientType', 'team', 'advisor', 'rm', 'platform', 'src', 'created', 'lastStatus', 'converted', 'appr', 'verdict'];
+    const head = ['Month', 'Date', 'Tab', 'Ticket Id', 'Client Name', 'Email Id', 'Lead Status', 'Client Type', 'Team', 'Advisor', 'Current RM', 'Platform', 'Lead Source', 'Lead Created', 'Last Status Date', 'Converted On', 'Approved By', 'Approved/Rejected'];
+    downloadCsv('plan-approval-lead-status.csv', head, rows.map(r => cols.map(c => r[c])));
+  });
+  $('unmappedCsvBtn').addEventListener('click', () => {
+    const rows = selAll().filter(r => !r.matched);
+    const cols = ['date', 'ticket', 'clientType', 'name', 'email', 'advisor', 'appr'];
+    const head = ['Date', 'Ticket ID', 'Client Type', 'Client Name', 'Client Mail ID', 'Advisor', 'Approved By'];
+    downloadCsv('unmapped-clients.csv', head, rows.map(r => cols.map(c => r[c])));
+  });
+  function downloadCsv(filename, head, lines) {
+    const csv = [head].concat(lines).map(r => r.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = 'plan-approval-lead-status.csv'; a.click(); URL.revokeObjectURL(a.href);
-  });
+    a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+  }
   $('themeBtn').addEventListener('click', () => {
     const dark = document.documentElement.getAttribute('data-theme') === 'dark' ||
       (!document.documentElement.hasAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -560,11 +904,17 @@
     $('themeBtn').textContent = dark ? 'Dark mode' : 'Light mode';
   });
   if (matchMedia('(prefers-color-scheme: dark)').matches) $('themeBtn').textContent = 'Light mode';
+  $('stamp').textContent = 'Updated ' + META.generated;
 
-  // populate selects
+  // ---------- populate selects ----------
+  const optsFrom = (id, values) => values.forEach(v => $(id).insertAdjacentHTML('beforeend', '<option>' + esc(v) + '</option>'));
   MONTHS.forEach(m => $('fMonth').insertAdjacentHTML('beforeend', '<option value="' + m.mk + '">' + esc(m.m) + '</option>'));
-  [...new Set(ROWS.map(r => r.advisor).filter(Boolean))].sort().forEach(a => $('fAdvisor').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
-  [...new Set(ROWS.map(r => r.src).filter(Boolean))].sort().forEach(a => $('fSource').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
+  optsFrom('fAdvisor', [...new Set(ROWS.map(r => r.advisor).filter(Boolean))].sort());
+  optsFrom('fSource', [...new Set(ROWS.map(r => r.src).filter(Boolean))].sort());
+  optsFrom('fPlatform', [...new Set(ROWS.map(r => r.platform).filter(Boolean))].sort());
+  optsFrom('fTeam', [...new Set(ROWS.map(r => r.team).filter(Boolean))].sort());
+  $('fProduct').innerHTML = '<option value="all">All products (sum)</option>' +
+    PRODUCTS.map(p => '<option value="' + esc(p.k) + '">' + esc(p.label) + '</option>').join('');
 
   render();
 })();

@@ -47,6 +47,16 @@ PRODUCTS = [
 # wrong column) leaking through into the public file. Match => treat the cell as blank.
 LOOKS_LIKE_PII_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|\d{7,}")
 
+# The b2c export and the employee reference sheet occasionally spell the same person differently,
+# which breaks the RM -> team join. Variants are listed explicitly rather than fuzzy-matched:
+# an edit-distance match would eventually pull two genuinely different people together, and a
+# wrong team assignment is worse than an unassigned one because it looks correct.
+# Left = spelling as it appears in b2c (currentRmName); right = spelling in the employee sheet.
+# Both sides are compared after name_key() normalisation (lowercased, whitespace collapsed).
+RM_NAME_ALIASES = {
+    "bhawna surana": "bhawana surana",
+}
+
 
 def scrub(value):
     return "" if value and LOOKS_LIKE_PII_RE.search(value) else value
@@ -135,6 +145,12 @@ def load_team_map(path):
             n, t = name_key(r[n_i]), s(r[t_i])
             if n and t:
                 out[n] = t
+        # Register known b2c spellings against the employee-sheet entry they refer to. If the
+        # canonical name is missing (say the sheet was re-exported and the person left), the alias
+        # is skipped and the usual "no row in the employee reference sheet" warning still fires.
+        for variant, canonical in RM_NAME_ALIASES.items():
+            if canonical in out and variant not in out:
+                out[variant] = out[canonical]
         return out
     finally:
         wb.close()

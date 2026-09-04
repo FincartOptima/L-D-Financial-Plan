@@ -57,6 +57,19 @@ RM_NAME_ALIASES = {
     "bhawna surana": "bhawana surana",
 }
 
+# Same idea for client emails. These are typos in the plan approval sheet that point at a real
+# lead record - listed one by one rather than fuzzy-matched, because an edit-distance rule on
+# email addresses would eventually bind a plan to the wrong person's lead history.
+# Fix these at source in the planning sheet and the entry here becomes redundant.
+# Left = as typed in the plan approval sheet; right = the real address in b2c.
+EMAIL_ALIASES = {
+    "inayakpatilvp111@gmail.com": "vinayakpatilvp111@gmail.com",   # dropped leading "v"
+}
+
+# Turnaround bands, in days. Cumulative: each counts plans taking strictly more than that many days.
+TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30]
+TAT_FIELDS = [("approve", "tatApprove"), ("convert", "tatConvert"), ("inprocess", "tatInProcess")]
+
 
 def scrub(value):
     return "" if value and LOOKS_LIKE_PII_RE.search(value) else value
@@ -237,6 +250,7 @@ def load_plan_rows(path, lead, team_map):
                     continue
                 email = g(r, "Email Id")
                 key = norm_key(email)
+                key = EMAIL_ALIASES.get(key, key)
                 mraw = g(r, "D").lower()
                 mnum, mlabel = MONTHS.get(mraw, (0, g(r, "D") or "Unknown"))
                 date = g(r, "Date")
@@ -258,7 +272,12 @@ def load_plan_rows(path, lead, team_map):
                     "email": email,
                     "clientType": g(r, "Client Type"),
                     "key": key,
-                    "src": scrub(g(r, "Lead Source")),
+                    # Lead source comes from the b2c record the email mapped to (landingPage —
+                    # the column whose vocabulary matches the planning sheet: Direct Registration,
+                    # FinancialPlan_VG, Workshop...). Unmatched clients have no b2c record, so they
+                    # fall back to whatever the planning sheet recorded rather than going blank.
+                    "src": scrub(lead_rec["landing"] if lead_rec and lead_rec["landing"] else g(r, "Lead Source")),
+                    "srcSheet": scrub(g(r, "Lead Source")),
                     "draft": g(r, "Drafted By"),
                     "appr": g(r, "Approved By"),
                     "appdate": g(r, "Approval Date"),
@@ -298,36 +317,91 @@ def dedupe_clients(rows):
     return list(by.values())
 
 
-def build_cube(rows):
-    """Grouped counts only: (month, quarter, advisor, source, status) -> n. No names/emails survive this step."""
-    counts = {}
+DIMS = ("mk", "m", "q", "advisor", "src", "team", "platform", "clientType", "status")
+
+
+def build_cube(rows, with_measures=False):
+    """Groups rows down to (month, quarter, advisor, source, team, platform, client type, status).
+    No names, emails, ticket ids or dates survive this step, so the public page can slice these
+    dimensions but never reach a named individual.
+
+    with_measures adds revenue sums and turnaround bucket counts, which are per-approval figures —
+    only pass it for the ticket-level cube, never the de-duplicated client one."""
+    cells = {}
     for r in rows:
-        key = (r["mk"], r["m"], r["q"], r["advisor"], r["src"], r["status"])
-        counts[key] = counts.get(key, 0) + 1
-    return [
-        {"mk": mk, "m": m, "q": q, "advisor": advisor, "src": src, "status": status, "n": n}
-        for (mk, m, q, advisor, src, status), n in counts.items()
-    ]
+        key = tuple(r[d] for d in DIMS)
+        c = cells.get(key)
+        if c is None:
+            c = cells[key] = {"n": 0}
+            if with_measures:
+                c["rev"] = {k: 0.0 for k, _ in PRODUCTS}
+                c["tat"] = {name: {"d": 0, "neg": 0, "miss": 0, "b": [0] * len(TAT_BUCKETS)}
+                            for name, _ in TAT_FIELDS}
+        c["n"] += 1
+        if with_measures:
+            for k, _ in PRODUCTS:
+                c["rev"][k] += r["rev"].get(k, 0.0)
+            for name, field in TAT_FIELDS:
+                v, t = r[field], c["tat"][name]
+                if v is None:
+                    t["miss"] += 1
+                elif v < 0:
+                    # event predates approval (e.g. an existing client converted years earlier):
+                    # held out of the denominator rather than counted as a zero-day turnaround
+                    t["neg"] += 1
+                else:
+                    t["d"] += 1
+                    for i, b in enumerate(TAT_BUCKETS):
+                        if v > b:
+                            t["b"][i] += 1
+
+    out = []
+    for key, c in cells.items():
+        cell = dict(zip(DIMS, key))
+        cell["n"] = c["n"]
+        if with_measures:
+            cell["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
+            cell["tat"] = c["tat"]
+        out.append(cell)
+    return out
+
+
+def collect_strings(node, out):
+    """Every string value reachable in the payload, ignoring numbers. Measures (revenue sums,
+    turnaround counts) are numeric by construction, and a revenue figure like 2000000 would
+    otherwise trip the phone-number heuristic. Anything genuinely identifying — an email, or a
+    phone pasted into a text column — arrives as a string and is still caught."""
+    if isinstance(node, str):
+        out.append(node)
+    elif isinstance(node, dict):
+        for v in node.values():
+            collect_strings(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            collect_strings(v, out)
 
 
 def embed(template_path, payload, pii_scan_keys=None):
-    """pii_scan_keys: names of top-level payload keys sourced from row data (advisor/src/etc.) to
-    check for email/phone-like leftovers. Deliberately excludes 'meta' — filenames legitimately
-    contain long digit runs (report IDs, timestamps) that would false-positive as phone numbers."""
+    """pii_scan_keys: top-level payload keys sourced from row data (advisor/src/team/...) to check
+    for email/phone-like leftovers. Deliberately excludes 'meta' — filenames legitimately contain
+    long digit runs (report IDs, timestamps) that would false-positive as phone numbers."""
     text = template_path.read_text(encoding="utf-8")
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     if "</script" in data.lower():
         raise ValueError("payload contains a literal </script — refusing to embed unsafely")
     if pii_scan_keys:
-        scan_text = json.dumps({k: payload.get(k) for k in pii_scan_keys}, ensure_ascii=False)
-        hit = LOOKS_LIKE_PII_RE.search(scan_text)
-        if hit:
-            raise ValueError(
-                f"Refusing to write the public dashboard: found an email/phone-like value "
-                f"({hit.group()!r}) in {pii_scan_keys}. This should be impossible after scrub() — "
-                f"stopping instead of risking a public leak. Check Advisor/Lead Source data, or "
-                f"whether a new field was added without scrubbing."
-            )
+        strings = []
+        for k in pii_scan_keys:
+            collect_strings(payload.get(k), strings)
+        for value in strings:
+            hit = LOOKS_LIKE_PII_RE.search(value)
+            if hit:
+                raise ValueError(
+                    f"Refusing to write the public dashboard: found an email/phone-like value "
+                    f"({hit.group()!r}) inside {value!r} in {pii_scan_keys}. This should be "
+                    f"impossible after scrub() — stopping instead of risking a public leak. Check "
+                    f"Advisor/Lead Source data, or whether a new text field was added without scrubbing."
+                )
     if "__DATA__" not in text:
         raise ValueError(f"{template_path.name} has no __DATA__ placeholder")
     return text.replace("__DATA__", data)
@@ -401,16 +475,17 @@ def main():
 
     # ---- public aggregate (pushed to GitHub) ----
     months = sorted({(r["mk"], r["m"]) for r in rows})
-    advisors = sorted({r["advisor"] for r in rows if r["advisor"]})
-    sources = sorted({r["src"] for r in rows if r["src"]})
     public_payload = {
-        "meta": meta,
+        "meta": dict(meta, tatBuckets=TAT_BUCKETS),
         "months": [{"mk": mk, "m": m} for mk, m in months],
-        "advisors": advisors,
-        "sources": sources,
-        "cube": {"tickets": build_cube(rows), "clients": build_cube(clients)},
+        "advisors": sorted({r["advisor"] for r in rows if r["advisor"]}),
+        "sources": sorted({r["src"] for r in rows if r["src"]}),
+        "teams": sorted({r["team"] for r in rows if r["team"]}),
+        "platforms": sorted({r["platform"] for r in rows if r["platform"]}),
+        "cube": {"tickets": build_cube(rows, with_measures=True), "clients": build_cube(clients)},
     }
-    public_html = embed(TEMPLATES / "public_dashboard.template.html", public_payload, pii_scan_keys=["cube", "advisors", "sources"])
+    public_html = embed(TEMPLATES / "public_dashboard.template.html", public_payload,
+                        pii_scan_keys=["cube", "advisors", "sources", "teams", "platforms"])
     (ROOT / "index.html").write_text(public_html, encoding="utf-8")
     print("Wrote index.html (aggregate only, no client names/emails)")
 

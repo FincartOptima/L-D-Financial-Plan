@@ -448,6 +448,14 @@
         <select id="fMonth"><option value="">All months</option></select>
       </div>
       <div class="fgroup">
+        <span class="flabel">Platform</span>
+        <select id="fPlatform"><option value="">All platforms</option></select>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Team</span>
+        <select id="fTeam"><option value="">All teams</option></select>
+      </div>
+      <div class="fgroup">
         <span class="flabel">Advisor</span>
         <select id="fAdvisor"><option value="">All advisors</option></select>
       </div>
@@ -474,8 +482,25 @@
     <div class="nomatch-note" id="nomatchNote"></div>
   </section>
 
+  <div class="two" id="sec-team">
+    <section class="card">
+      <p class="eyebrow">02 — By team</p>
+      <h2>Team-wise status distribution</h2>
+      <p class="cap" id="teamChartCap"></p>
+      <div class="vchart" id="teamChart"></div>
+      <div class="vaxis" id="teamAxis"></div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">02 — By team</p>
+      <h2>Team-wise status — table</h2>
+      <p class="cap">Same numbers as the chart on the left. Sorted by client count.</p>
+      <div class="tscroll"><table id="teamTbl"></table></div>
+    </section>
+  </div>
+
   <section class="card hm">
-    <p class="eyebrow">02 — Over time</p>
+    <p class="eyebrow">03 — Over time</p>
     <h2>Month-wise lead status split</h2>
     <p class="cap">Months across the top, lead status down the side. Cell shading is relative to the largest cell in the grid.</p>
     <div class="tscroll"><table id="monthMatrix"></table></div>
@@ -483,6 +508,56 @@
       <i style="background:var(--hm1)"></i><i style="background:var(--hm2)"></i><i style="background:var(--hm3)"></i><i style="background:var(--hm4)"></i><i style="background:var(--hm5)"></i>
       More</div>
     <div style="margin-top:14px"><button class="ghost" id="csvBtn" type="button">Download this table as CSV</button></div>
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">04 — Client type</p>
+    <h2>Client type distribution</h2>
+    <p class="cap" id="ctypeCap"></p>
+    <div id="ctypeWarn"></div>
+    <div class="tscroll"><table id="ctypeTbl"></table></div>
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">05 — Client type × status</p>
+    <h2>Client distribution — client type × lead status</h2>
+    <p class="cap">Client counts. Percentages are of the row (client type) total.</p>
+    <div class="tscroll"><table id="ctypeStatusTbl"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead">
+      <div class="grow">
+        <p class="eyebrow">06 — Revenue</p>
+        <h2>Revenue distribution — client type × lead status</h2>
+        <p class="cap" id="revCap"></p>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Product</span>
+        <select id="fProduct"></select>
+      </div>
+    </div>
+    <div class="tscroll"><table id="revTbl"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead">
+      <div class="grow">
+        <p class="eyebrow">07 — Turnaround</p>
+        <h2>Turnaround time</h2>
+        <p class="cap" id="tatCap"></p>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Measure</span>
+        <select id="fTat">
+          <option value="approve">1 — Days taken to approve plans</option>
+          <option value="convert">2 — Days taken to convert clients</option>
+          <option value="inprocess">3 — Days taken to reach in-process</option>
+        </select>
+      </div>
+    </div>
+    <div id="tatWarn"></div>
+    <div class="tscroll" style="max-width:560px"><table id="tatTbl"></table></div>
   </section>
 
   <p class="foot" id="foot"></p>
@@ -495,7 +570,8 @@
 (function () {
   "use strict";
   const DATA = JSON.parse(document.getElementById('payload').textContent);
-  const CUBE = DATA.cube, META = DATA.meta, MONTHS = DATA.months, ADVISORS = DATA.advisors, SOURCES = DATA.sources;
+  const CUBE = DATA.cube, META = DATA.meta, MONTHS = DATA.months, ADVISORS = DATA.advisors,
+        SOURCES = DATA.sources, TEAMS = DATA.teams || [];
 
   const SLOTS = ['var(--s-converted)', 'var(--s-inprocess)', 'var(--s-reassigned)', 'var(--s-onhold)',
                  'var(--s-followup)', 'var(--s-assigned)', 'var(--s-dead)', 'var(--s-other)'];
@@ -523,20 +599,55 @@
   const sInfo = k => STATUS.find(s => s.k === k) || { k, label: k, c: 'var(--s-other)', tex: 0 };
   const ANALYZE_STATUS = STATUS.filter(s => s.k !== 'NOT IN LEAD DATA');
 
-  const state = { basis: 'clients', month: '', advisor: '', source: '', off: new Set() };
+  const PRODUCTS = META.products || [];
+  const TAT_BUCKETS = META.tatBuckets || [1, 2, 3, 5, 7, 10, 15, 30];
+  const TAT_LABEL = {
+    approve: 'days from plan raised (Date) to plan approved (Approval Date)',
+    convert: 'days from plan approved to client converted (convertedDate in the lead data)',
+    inprocess: 'days from plan approved to the lead reaching in-process (leadInProcessDate in the lead data)'
+  };
+
+  // Client type (column H). Alpha/Beta/Gamma lead; the older New/Existing labels and blanks
+  // follow, so the tables keep working as the classification rolls out across the data.
+  const CTYPE_LEAD = ['Alpha', 'Beta', 'Gamma'];
+  const UNCLASSIFIED = '(Unclassified)';
+  const ctypeOf = r => r.clientType || UNCLASSIFIED;
+  const CTYPES = (() => {
+    const seen = [...new Set([...CUBE.tickets, ...CUBE.clients].map(ctypeOf))];
+    const lead = CTYPE_LEAD.filter(c => seen.includes(c));
+    const rest = seen.filter(c => !lead.includes(c) && c !== UNCLASSIFIED).sort();
+    return lead.concat(rest, seen.includes(UNCLASSIFIED) ? [UNCLASSIFIED] : []);
+  })();
+
+  const state = { basis: 'clients', month: '', advisor: '', source: '', team: '', platform: '',
+                  product: 'all', tat: 'approve', off: new Set() };
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const pct = (n, d) => d ? (Math.round(n / d * 1000) / 10).toFixed(1) + '%' : '0%';
   const nf = n => n.toLocaleString('en-IN');
   const sum = arr => arr.reduce((a, r) => a + r.n, 0);
+  // Indian short-form money so wide tables stay readable; the full value goes in the cell title.
+  function money(n) {
+    if (!n) return '–';
+    const a = Math.abs(n), sign = n < 0 ? '-' : '';
+    if (a >= 1e7) return sign + '₹' + (a / 1e7).toFixed(2) + ' Cr';
+    if (a >= 1e5) return sign + '₹' + (a / 1e5).toFixed(2) + ' L';
+    return sign + '₹' + Math.round(a).toLocaleString('en-IN');
+  }
+  const moneyFull = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  const revOf = r => !r.rev ? 0 : (state.product === 'all'
+    ? PRODUCTS.reduce((a, p) => a + (r.rev[p.k] || 0), 0)
+    : (r.rev[state.product] || 0));
 
   // ---------- filtering over the pre-aggregated cube (never row-level data) ----------
   function filt(arr) {
     return arr.filter(r =>
       (!state.month || r.mk === state.month) &&
       (!state.advisor || r.advisor === state.advisor) &&
-      (!state.source || r.src === state.source));
+      (!state.source || r.src === state.source) &&
+      (!state.team || r.team === state.team) &&
+      (!state.platform || r.platform === state.platform));
   }
   const baseCube = () => filt(CUBE[state.basis]);
   const matchedCube = () => baseCube().filter(r => r.status !== 'NOT IN LEAD DATA');
@@ -549,12 +660,16 @@
     const top = Math.ceil(max / step) * step || step;
     let gl = '';
     for (let v = 0; v <= top; v += step) gl += '<div class="gl" style="bottom:' + (v / top * 100) + '%"><span>' + v + '</span></div>';
-    chartEl.innerHTML = '<div class="gridlines">' + gl + '</div>' + cols.map(c =>
-      '<div class="vcol" data-key="' + esc(c.key) + '" data-dim="' + (c.dim ? 1 : 0) + '">' +
+    chartEl.innerHTML = '<div class="gridlines">' + gl + '</div>' + cols.map(c => {
+      const inner = c.parts
+        ? '<div class="vstack" style="height:100%">' + c.parts.filter(p => p.n > 0).map(p =>
+            '<div data-key="' + esc(c.key) + '" data-status="' + esc(p.k) + '" data-tex="' + (p.tex || 0) + '" style="--c:' + p.c + ';flex:' + p.n + ' 1 0"></div>').join('') + '</div>'
+        : '<div class="vbar" data-tex="' + (c.tex || 0) + '" style="--c:' + c.color + ';height:100%"></div>';
+      return '<div class="vcol" data-key="' + esc(c.key) + '" data-dim="' + (c.dim ? 1 : 0) + '">' +
         '<div class="vval">' + nf(c.total) + '</div>' +
-        '<div style="height:' + (c.total / top * 100) + '%;display:flex;flex-direction:column;justify-content:flex-end">' +
-          '<div class="vbar" data-tex="' + (c.tex || 0) + '" style="--c:' + c.color + ';height:100%"></div>' +
-        '</div></div>').join('');
+        '<div style="height:' + (c.total / top * 100) + '%;display:flex;flex-direction:column;justify-content:flex-end">' + inner + '</div>' +
+        '</div>';
+    }).join('');
     axisEl.innerHTML = cols.map(c => '<div class="vlab">' + esc(c.label) + '</div>').join('');
   }
 
@@ -612,6 +727,115 @@
         '<td class="num muted-col">' + notMatched + '</td></tr>' : '') +
       '</tbody>';
 
+    // ----- Team-wise status distribution -----
+    const teams = [...new Set(rows.map(r => r.team))]
+      .map(t => ({ t, n: sum(rows.filter(r => r.team === t)) }))
+      .sort((a, b) => b.n - a.n).map(x => x.t);
+    const teamCols = teams.map(t => {
+      const tr = rows.filter(r => r.team === t);
+      return { key: t, label: t, total: sum(tr), parts: present.map(s => ({ k: s.k, c: s.c, tex: s.tex, n: sum(tr.filter(r => r.status === s.k)) })) };
+    });
+    $('teamChartCap').innerHTML = 'Matched clients per team, stacked by lead status. Team comes from the RM on the lead record, via the employee reference sheet.';
+    drawBars($('teamChart'), $('teamAxis'), teamCols);
+    $('teamTbl').innerHTML =
+      '<thead><tr><th>Team</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+      teamCols.map(c => '<tr><td>' + esc(c.label) + '</td>' +
+        c.parts.map(p => '<td class="num">' + (p.n || '–') + '</td>').join('') +
+        '<td class="num">' + c.total + '</td></tr>').join('') +
+      '<tr class="totrow"><td>All teams</td>' +
+      present.map(s => '<td class="num">' + sum(rows.filter(r => r.status === s.k)) + '</td>').join('') +
+      '<td class="num">' + total + '</td></tr></tbody>';
+
+    // ----- Client type distribution -----
+    const ctypesPresent = CTYPES.filter(c => sel.some(r => ctypeOf(r) === c));
+    const abgTotal = sum(sel.filter(r => CTYPE_LEAD.includes(ctypeOf(r))));
+    $('ctypeCap').innerHTML = 'Clients by <b>Client Type</b> (column H of the plan approval sheets). Percentages are of ' + sum(sel) + ' clients in the current selection.';
+    $('ctypeWarn').innerHTML = (abgTotal < sum(sel))
+      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sum(sel) + ' clients here. The classification only starts partway through the data — earlier rows still carry the older <b>New / Existing</b> labels or are blank, so they are listed separately rather than being folded into a bucket they were never assigned.</p>'
+      : '';
+    $('ctypeTbl').innerHTML =
+      '<thead><tr><th>Client type</th><th class="num">Clients</th><th class="num">% of all</th><th class="num">Matched</th><th class="num">Not matched</th></tr></thead><tbody>' +
+      ctypesPresent.map(c => {
+        const cr = sel.filter(r => ctypeOf(r) === c);
+        const nm = sum(cr.filter(r => r.status === 'NOT IN LEAD DATA'));
+        return '<tr><td>' + esc(c) + '</td><td class="num">' + sum(cr) + '</td><td class="num">' + pct(sum(cr), sum(sel)) +
+          '</td><td class="num">' + (sum(cr) - nm) + '</td><td class="num muted-col">' + (nm || '–') + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All client types</td><td class="num">' + sum(sel) + '</td><td class="num">100%</td><td class="num">' +
+      sum(matchedAll) + '</td><td class="num">' + notMatched + '</td></tr></tbody>';
+
+    // ----- Client type × lead status -----
+    const ctHead = '<thead><tr><th>Client type</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') +
+      '<th class="num">Matched total</th><th class="num muted-col">Not matched</th></tr></thead>';
+    $('ctypeStatusTbl').innerHTML = ctHead + '<tbody>' +
+      ctypesPresent.map(c => {
+        const cr = rows.filter(r => ctypeOf(r) === c);
+        const nm = sum(sel.filter(r => ctypeOf(r) === c && r.status === 'NOT IN LEAD DATA'));
+        return '<tr><td>' + esc(c) + '</td>' +
+          present.map(s => {
+            const n = sum(cr.filter(r => r.status === s.k));
+            return '<td class="num">' + (n || '–') + (n ? ' <span class="sub-pct">' + pct(n, sum(cr)) + '</span>' : '') + '</td>';
+          }).join('') +
+          '<td class="num">' + sum(cr) + '</td><td class="num muted-col">' + (nm || '–') + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All client types</td>' +
+      present.map(s => '<td class="num">' + sum(rows.filter(r => r.status === s.k)) + '</td>').join('') +
+      '<td class="num">' + total + '</td><td class="num">' + notMatched + '</td></tr></tbody>';
+
+    // ----- Revenue: per-approval figures, so they come off the ticket cube -----
+    const revCells = filt(CUBE.tickets).filter(r => r.status === 'NOT IN LEAD DATA' || !state.off.has(r.status));
+    const prodLabel = state.product === 'all' ? 'All products (sum)' : (PRODUCTS.find(p => p.k === state.product) || {}).label;
+    const revTotal = revCells.reduce((a, r) => a + revOf(r), 0);
+    $('revCap').innerHTML = 'Showing <b>' + esc(prodLabel) + '</b>, summed across <b>' + sum(revCells) +
+      '</b> plan approvals (not de-duplicated by client — a client with two approved plans contributes both). Grand total ' + moneyFull(revTotal) + '.';
+    $('revTbl').innerHTML = ctHead + '<tbody>' +
+      ctypesPresent.map(c => {
+        const cr = revCells.filter(r => ctypeOf(r) === c);
+        const rowTot = cr.filter(r => r.status !== 'NOT IN LEAD DATA').reduce((a, r) => a + revOf(r), 0);
+        const nmVal = cr.filter(r => r.status === 'NOT IN LEAD DATA').reduce((a, r) => a + revOf(r), 0);
+        return '<tr><td>' + esc(c) + '</td>' +
+          present.map(s => {
+            const v = cr.filter(r => r.status === s.k).reduce((a, r) => a + revOf(r), 0);
+            return '<td class="num" title="' + moneyFull(v) + '">' + money(v) + '</td>';
+          }).join('') +
+          '<td class="num" title="' + moneyFull(rowTot) + '">' + money(rowTot) + '</td>' +
+          '<td class="num muted-col" title="' + moneyFull(nmVal) + '">' + money(nmVal) + '</td></tr>';
+      }).join('') +
+      (() => {
+        const matchedRev = revCells.filter(r => r.status !== 'NOT IN LEAD DATA');
+        const nmRev = revCells.filter(r => r.status === 'NOT IN LEAD DATA').reduce((a, r) => a + revOf(r), 0);
+        return '<tr class="totrow"><td>All client types</td>' +
+          present.map(s => {
+            const v = revCells.filter(r => r.status === s.k).reduce((a, r) => a + revOf(r), 0);
+            return '<td class="num" title="' + moneyFull(v) + '">' + money(v) + '</td>';
+          }).join('') +
+          '<td class="num" title="' + moneyFull(matchedRev.reduce((a, r) => a + revOf(r), 0)) + '">' + money(matchedRev.reduce((a, r) => a + revOf(r), 0)) + '</td>' +
+          '<td class="num" title="' + moneyFull(nmRev) + '">' + money(nmRev) + '</td></tr>';
+      })() + '</tbody>';
+
+    // ----- Turnaround: bucket counts are pre-aggregated per cube cell and simply added up -----
+    const tatCells = revCells;
+    const agg = { d: 0, neg: 0, miss: 0, b: TAT_BUCKETS.map(() => 0) };
+    tatCells.forEach(r => {
+      const t = r.tat && r.tat[state.tat];
+      if (!t) return;
+      agg.d += t.d; agg.neg += t.neg; agg.miss += t.miss;
+      t.b.forEach((v, i) => agg.b[i] += v);
+    });
+    const inScope = agg.d + agg.neg + agg.miss;
+    $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
+    const notes = [];
+    if (agg.miss) notes.push('<b>' + agg.miss + '</b> of ' + inScope + ' plans in scope are missing one of the two dates');
+    if (agg.neg) notes.push('<b>' + agg.neg + '</b> recorded the event <i>before</i> the plan was approved (typically an existing client who converted earlier)');
+    $('tatWarn').innerHTML = agg.d === 0
+      ? '<p class="warnnote">No plan in the current selection has a usable value for this measure, so there is nothing to count. That usually means the source date column is empty in the export rather than that the turnaround was zero.</p>'
+      : (notes.length ? '<p class="warnnote">' + notes.join('; and ') + '. Those are excluded from the <b>' + agg.d + '</b> plans measured below rather than counted as zero.</p>' : '');
+    $('tatTbl').innerHTML =
+      '<thead><tr><th>Interval</th><th class="num">Plan count</th><th class="num">% of total plans</th></tr></thead><tbody>' +
+      TAT_BUCKETS.map((b, i) => '<tr><td>&gt; ' + b + (b === 1 ? ' Day' : ' Days') + '</td><td class="num">' + agg.b[i] +
+        '</td><td class="num">' + pct(agg.b[i], agg.d) + '</td></tr>').join('') +
+      '<tr class="totrow"><td>Plans measured</td><td class="num">' + agg.d + '</td><td class="num">—</td></tr></tbody>';
+
     $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => allStatusKeys.has(s.k)).map(s =>
       '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot" data-tex="' + (s.tex || 0) + '"></i>' + esc(s.label) + '</button>').join('');
 
@@ -634,18 +858,34 @@
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
   }
   document.addEventListener('mousemove', e => {
+    const seg = e.target.closest('.vstack > div');
     const col = e.target.closest('.vcol');
     if (!col) { tip.style.opacity = 0; return; }
-    const st = col.dataset.key, s = sInfo(st);
-    const matchedAll = matchedCube();
-    const n = sum(matchedAll.filter(r => r.status === st));
-    showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>Clients' +
-      '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(matchedAll)) + ' of matched · click to ' +
-      (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+    const shown = shownCube();
+    if (seg) {                                    // a status band inside a team column
+      const team = seg.dataset.key, st = seg.dataset.status, s = sInfo(st);
+      const tr = shown.filter(r => r.team === team);
+      const n = sum(tr.filter(r => r.status === st));
+      showTip('<div class="t">' + esc(team) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(tr)) + ' of ' + sum(tr) + ' in this team</div>', e);
+    } else if (col.closest('#teamChart')) {
+      const team = col.dataset.key;
+      const n = sum(shown.filter(r => r.team === team));
+      showTip('<div class="t">' + esc(team) + '</div><div class="m">' + n + ' matched clients · ' + pct(n, sum(shown)) + ' of all matched</div>', e);
+    } else {
+      const st = col.dataset.key, s = sInfo(st);
+      const matchedAll = matchedCube();
+      const n = sum(matchedAll.filter(r => r.status === st));
+      showTip('<div class="t">' + esc(s.label) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>Clients' +
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(matchedAll)) + ' of matched · click to ' +
+        (state.off.has(st) ? 'include' : 'exclude') + '</div>', e);
+    }
   });
 
   // ---------- events ----------
-  const FILTER_IDS = { fMonth: 'month', fAdvisor: 'advisor', fSource: 'source' };
+  const FILTER_IDS = { fMonth: 'month', fAdvisor: 'advisor', fSource: 'source', fTeam: 'team', fPlatform: 'platform' };
+  $('fProduct').addEventListener('change', e => { state.product = e.target.value; render(); });
+  $('fTat').addEventListener('change', e => { state.tat = e.target.value; render(); });
   Object.keys(FILTER_IDS).forEach(id => $(id).addEventListener('change', e => { state[FILTER_IDS[id]] = e.target.value; render(); }));
   $('statusChips').addEventListener('click', e => {
     const c = e.target.closest('.chip'); if (!c) return;
@@ -656,7 +896,7 @@
     const k = col.dataset.key; state.off.has(k) ? state.off.delete(k) : state.off.add(k); render();
   });
   $('resetBtn').addEventListener('click', () => {
-    Object.assign(state, { month: '', advisor: '', source: '' });
+    Object.assign(state, { month: '', advisor: '', source: '', team: '', platform: '' });
     state.off.clear();
     Object.keys(FILTER_IDS).forEach(id => $(id).value = '');
     render();
@@ -689,6 +929,10 @@
   MONTHS.forEach(m => $('fMonth').insertAdjacentHTML('beforeend', '<option value="' + m.mk + '">' + esc(m.m) + '</option>'));
   ADVISORS.forEach(a => $('fAdvisor').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
   SOURCES.forEach(a => $('fSource').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
+  TEAMS.forEach(a => $('fTeam').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
+  (DATA.platforms || []).forEach(a => $('fPlatform').insertAdjacentHTML('beforeend', '<option>' + esc(a) + '</option>'));
+  $('fProduct').innerHTML = '<option value="all">All products (sum)</option>' +
+    PRODUCTS.map(p => '<option value="' + esc(p.k) + '">' + esc(p.label) + '</option>').join('');
 
   render();
 })();

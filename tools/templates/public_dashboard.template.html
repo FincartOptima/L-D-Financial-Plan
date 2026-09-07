@@ -373,6 +373,11 @@
   .pill .dot { width: 8px; height: 8px; border-radius: 0; background: var(--c); }
   td.wrapcell { white-space: normal; min-width: 170px; color: var(--ink); }
   .totrow td { font-weight: 700; color: var(--ink); border-top: 2px solid var(--ink); border-bottom: 0; }
+  /* Rows sitting outside the measured set — indented and muted so they read as a subordinate
+     group, since their percentages are of a different base than the bands above. */
+  .negrow td { color: var(--ink-mute); border-bottom: 0; }
+  .negrow td:first-child { padding-left: 20px; }
+  .totrow + .negrow td { padding-top: 14px; }
   .tblwrap { max-height: 580px; overflow: auto; border: 1px solid var(--rule-paper); border-radius: 0; }
   .tblwrap table th { position: sticky; top: 0; z-index: 1; cursor: pointer; }
   .tblwrap table th:first-child, .tblwrap table td:first-child { padding-left: 14px; }
@@ -471,6 +476,13 @@
     </section>
   </div>
 
+  <div class="tabbar" role="tablist">
+    <button class="tabbtn" type="button" data-tab="overview" aria-selected="true">Dashboard</button>
+    <button class="tabbtn" type="button" data-tab="unmapped" aria-selected="false">Unmapped clients<span class="tabbadge" id="unmappedBadge">0</span></button>
+  </div>
+
+  <div id="panel-overview">
+
   <section class="kpis" id="kpis"></section>
 
   <section class="card">
@@ -560,6 +572,18 @@
     <div class="tscroll" style="max-width:560px"><table id="tatTbl"></table></div>
   </section>
 
+  </div><!-- /panel-overview -->
+
+  <div id="panel-unmapped" hidden>
+    <section class="card">
+      <p class="eyebrow">Follow-up</p>
+      <h2>Unmapped clients</h2>
+      <p class="cap" id="unmappedCap"></p>
+      <div class="tblwrap"><table id="unmappedTbl"></table></div>
+      <div style="margin-top:14px"><button class="ghost" id="unmappedCsvBtn" type="button">Download CSV</button></div>
+    </section>
+  </div>
+
   <p class="foot" id="foot"></p>
 </div>
 
@@ -602,9 +626,9 @@
   const PRODUCTS = META.products || [];
   const TAT_BUCKETS = META.tatBuckets || [1, 2, 3, 5, 7, 10, 15, 30];
   const TAT_LABEL = {
-    approve: 'days from plan raised (Date, col B) to plan approved (Approval Date, col M), across every approved plan',
-    convert: 'days from plan approved (col M) to the client converting (convertedDate in the lead data), across clients now marked Converted',
-    inprocess: 'days from plan raised (Date, col B) to the lead reaching in-process (leadInProcessDate in the lead data), across clients now marked In process'
+    approve: 'days from <b>Date</b> to <b>Approval Date</b> on the plan approval sheet, across every approved plan',
+    convert: 'days from <b>Approval Date</b> to <b>convertedDate</b> in the lead data, across clients now marked Converted',
+    inprocess: 'days from <b>Date</b> to <b>leadInProcessDate</b> in the lead data, across clients now marked In process'
   };
   // Each measure is scoped to the clients who reached that stage, so the denominator is the
   // population that could have produced the outcome. The scoping is applied when the cube is
@@ -614,12 +638,18 @@
     convert: 'clients whose lead status is <b>Converted</b>',
     inprocess: 'clients whose lead status is <b>In process</b>'
   };
+  const TAT_SPLIT = META.tatSplit || ['convert'];
+  const TAT_EARLY_LABEL = META.tatEarlyLabel || { convert: 'Client Converted Before Drafting Financial Plan' };
+  const TAT_NEUTRAL_NEG_LABEL = META.tatNeutralNegLabel || { inprocess: 'Reached in-process before the plan was raised' };
+  const TAT_OLD_DAYS = META.tatOldClientDays == null ? 30 : META.tatOldClientDays;
 
-  // Client type (column H). Alpha/Beta/Gamma lead; the older New/Existing labels and blanks
-  // follow, so the tables keep working as the classification rolls out across the data.
+  // Client category as the lead system holds it (clientCategory), reached through the email
+  // mapping — it classifies far more clients than the planning sheet's own column. Alpha/Beta/
+  // Gamma lead; any other category the lead system uses follows, so this keeps working as the
+  // vocabulary changes. Clients with no lead record have no category at all.
   const CTYPE_LEAD = ['Alpha', 'Beta', 'Gamma'];
-  const UNCLASSIFIED = '(Unclassified)';
-  const ctypeOf = r => r.clientType || UNCLASSIFIED;
+  const UNCLASSIFIED = 'No lead record';
+  const ctypeOf = r => r.b2cCategory || UNCLASSIFIED;
   const CTYPES = (() => {
     const seen = [...new Set([...CUBE.tickets, ...CUBE.clients].map(ctypeOf))];
     const lead = CTYPE_LEAD.filter(c => seen.includes(c));
@@ -757,9 +787,9 @@
     // ----- Client type distribution -----
     const ctypesPresent = CTYPES.filter(c => sel.some(r => ctypeOf(r) === c));
     const abgTotal = sum(sel.filter(r => CTYPE_LEAD.includes(ctypeOf(r))));
-    $('ctypeCap').innerHTML = 'Clients by <b>Client Type</b> (column H of the plan approval sheets). Percentages are of ' + sum(sel) + ' clients in the current selection.';
+    $('ctypeCap').innerHTML = 'Clients by <b>clientCategory</b> from the lead system, reached through the email mapping. Percentages are of ' + sum(sel) + ' clients in the current selection.';
     $('ctypeWarn').innerHTML = (abgTotal < sum(sel))
-      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sum(sel) + ' clients here. The classification only starts partway through the data — earlier rows still carry the older <b>New / Existing</b> labels or are blank, so they are listed separately rather than being folded into a bucket they were never assigned.</p>'
+      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sum(sel) + ' clients here. The rest sit in other categories the lead system uses, or have no lead record at all, and are listed as they come rather than being folded into a bucket they were never assigned.</p>'
       : '';
     $('ctypeTbl').innerHTML =
       '<thead><tr><th>Client type</th><th class="num">Clients</th><th class="num">% of all</th><th class="num">Matched</th><th class="num">Not matched</th></tr></thead><tbody>' +
@@ -823,20 +853,24 @@
 
     // ----- Turnaround: bucket counts are pre-aggregated per cube cell and simply added up -----
     const tatCells = revCells;
-    const agg = { d: 0, neg: 0, miss: 0, b: TAT_BUCKETS.map(() => 0) };
+    const agg = { d: 0, neg: 0, negOld: 0, negEarly: 0, miss: 0, b: TAT_BUCKETS.map(() => 0) };
     tatCells.forEach(r => {
       const t = r.tat && r.tat[state.tat];
       if (!t) return;
       agg.d += t.d; agg.neg += t.neg; agg.miss += t.miss;
+      agg.negOld += t.negOld || 0; agg.negEarly += t.negEarly || 0;
       t.b.forEach((v, i) => agg.b[i] += v);
     });
+    const splits = TAT_SPLIT.includes(state.tat);
+    const neutralNeg = TAT_NEUTRAL_NEG_LABEL[state.tat];
     const inScope = agg.d + agg.neg + agg.miss;
     $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Scope is ' + TAT_SCOPE_NOTE[state.tat] +
       ' — <b>' + inScope + '</b> plan' + (inScope === 1 ? '' : 's') +
       '. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
     const notes = [];
     if (agg.miss) notes.push('<b>' + agg.miss + '</b> of the ' + inScope + ' in scope are missing one of the two dates');
-    if (agg.neg) notes.push('<b>' + agg.neg + '</b> recorded the event <i>before</i> its baseline date');
+    if (agg.neg) notes.push('<b>' + agg.neg + '</b> recorded the event <i>before</i> its baseline date' +
+      (splits || neutralNeg ? ' — named at the foot of the table, as a share of the ' + inScope + ' in scope' : ''));
     $('tatWarn').innerHTML = agg.d === 0
       ? '<p class="warnnote">No plan in the current selection has a usable value for this measure, so there is nothing to count. That usually means the source date column is empty in the export rather than that the turnaround was zero.</p>'
       : (notes.length ? '<p class="warnnote">' + notes.join('; and ') + '. Those are excluded from the <b>' + agg.d + '</b> plans measured below rather than counted as zero.</p>' : '');
@@ -844,7 +878,38 @@
       '<thead><tr><th>Interval</th><th class="num">Plan count</th><th class="num">% of total plans</th></tr></thead><tbody>' +
       TAT_BUCKETS.map((b, i) => '<tr><td>&gt; ' + b + (b === 1 ? ' Day' : ' Days') + '</td><td class="num">' + agg.b[i] +
         '</td><td class="num">' + pct(agg.b[i], agg.d) + '</td></tr>').join('') +
-      '<tr class="totrow"><td>Plans measured</td><td class="num">' + agg.d + '</td><td class="num">—</td></tr></tbody>';
+      '<tr class="totrow"><td>Plans measured</td><td class="num">' + agg.d + '</td><td class="num">—</td></tr>' +
+      // Negative gaps, named rather than silently dropped. Percentages here are of the measure's
+      // universe, not of the measured set, since these sit outside the bands above.
+      (splits && agg.neg
+        ? '<tr class="negrow"><td>Old Clients <span class="sub-pct">converted &gt; ' + TAT_OLD_DAYS + 'd before drafting</span></td><td class="num">' + agg.negOld + '</td><td class="num">' + pct(agg.negOld, inScope) + '</td></tr>' +
+          '<tr class="negrow"><td>' + esc(TAT_EARLY_LABEL[state.tat]) + '</td><td class="num">' + agg.negEarly + '</td><td class="num">' + pct(agg.negEarly, inScope) + '</td></tr>'
+        : (neutralNeg && agg.neg
+            ? '<tr class="negrow"><td>' + esc(neutralNeg) + '</td><td class="num">' + agg.neg + '</td><td class="num">' + pct(agg.neg, inScope) + '</td></tr>'
+            : '')) +
+      '</tbody>';
+
+    // ----- Unmapped clients tab -----
+    // These rows have no lead record, so team / platform / lead-source filters cannot apply to
+    // them; only month and advisor do.
+    const unmapped = (DATA.unmapped || []).filter(r =>
+      (!state.month || r.mk === state.month) &&
+      (!state.advisor || r.advisor === state.advisor));
+    $('unmappedBadge').textContent = unmapped.length;
+    $('unmappedCap').innerHTML = 'Showing <b>' + unmapped.length + '</b> client' + (unmapped.length === 1 ? '' : 's') +
+      ' with no matching record in the lead system. Verify or create their lead record, then re-run the build. ' +
+      'Only the month and advisor filters apply here — the others read off the lead record these clients do not have.';
+    const ucols = [
+      { k: 'date', t: 'Date' }, { k: 'ticket', t: 'Ticket ID' }, { k: 'clientType', t: 'Client type' },
+      { k: 'name', t: 'Client name' }, { k: 'email', t: 'Client mail ID' },
+      { k: 'advisor', t: 'Advisor' }, { k: 'appr', t: 'Approved by' }
+    ];
+    $('unmappedTbl').innerHTML =
+      '<thead><tr>' + ucols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
+      (unmapped.length
+        ? unmapped.map(r => '<tr>' + ucols.map(c => '<td' + (c.k === 'name' ? ' class="wrapcell"' : '') + '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
+        : '<tr><td colspan="' + ucols.length + '">Every client in this selection mapped to a lead record.</td></tr>') +
+      '</tbody>';
 
     $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => allStatusKeys.has(s.k)).map(s =>
       '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) + '" aria-pressed="' + (!state.off.has(s.k)) + '" style="--c:' + s.c + '"><i class="dot" data-tex="' + (s.tex || 0) + '"></i>' + esc(s.label) + '</button>').join('');
@@ -893,6 +958,23 @@
   });
 
   // ---------- events ----------
+  document.querySelectorAll('.tabbtn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabbtn').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    $('panel-overview').hidden = b.dataset.tab !== 'overview';
+    $('panel-unmapped').hidden = b.dataset.tab !== 'unmapped';
+  }));
+  $('unmappedCsvBtn').addEventListener('click', () => {
+    const rows = (DATA.unmapped || []).filter(r =>
+      (!state.month || r.mk === state.month) && (!state.advisor || r.advisor === state.advisor));
+    const cols = ['date', 'ticket', 'clientType', 'name', 'email', 'advisor', 'appr'];
+    const head = ['Date', 'Ticket ID', 'Client Type', 'Client Name', 'Client Mail ID', 'Advisor', 'Approved By'];
+    const csv = [head].concat(rows.map(r => cols.map(c => r[c])))
+      .map(r => r.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'unmapped-clients.csv'; a.click(); URL.revokeObjectURL(a.href);
+  });
+
   const FILTER_IDS = { fMonth: 'month', fAdvisor: 'advisor', fSource: 'source', fTeam: 'team', fPlatform: 'platform' };
   $('fProduct').addEventListener('change', e => { state.product = e.target.value; render(); });
   $('fTat').addEventListener('change', e => { state.tat = e.target.value; render(); });

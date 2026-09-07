@@ -373,6 +373,11 @@
   .pill .dot { width: 8px; height: 8px; border-radius: 0; background: var(--c); }
   td.wrapcell { white-space: normal; min-width: 170px; color: var(--ink); }
   .totrow td { font-weight: 700; color: var(--ink); border-top: 2px solid var(--ink); border-bottom: 0; }
+  /* Rows sitting outside the measured set — indented and muted so they read as a subordinate
+     group, since their percentages are of a different base than the bands above. */
+  .negrow td { color: var(--ink-mute); border-bottom: 0; }
+  .negrow td:first-child { padding-left: 20px; }
+  .totrow + .negrow td { padding-top: 14px; }
   .tblwrap { max-height: 580px; overflow: auto; border: 1px solid var(--rule-paper); border-radius: 0; }
   .tblwrap table th { position: sticky; top: 0; z-index: 1; cursor: pointer; }
   .tblwrap table th:first-child, .tblwrap table td:first-child { padding-left: 14px; }
@@ -653,11 +658,13 @@
 
   const MONTHS = [...new Set(ROWS.map(r => r.mk))].sort().map(mk => ({ mk, m: ROWS.find(r => r.mk === mk).m }));
 
-  // Client type (column H). Alpha/Beta/Gamma lead; anything else the sheet contains (the older
-  // New/Existing labels, or blanks) follows, so the table keeps working as the data evolves.
+  // Client category as the lead system holds it (clientCategory), reached through the email
+  // mapping — it classifies far more clients than the planning sheet's own column. Alpha/Beta/
+  // Gamma lead; any other category the lead system uses follows, so this keeps working as the
+  // vocabulary changes. Clients with no lead record have no category at all.
   const CTYPE_LEAD = ['Alpha', 'Beta', 'Gamma'];
-  const UNCLASSIFIED = '(Unclassified)';
-  const ctypeOf = r => r.clientType || UNCLASSIFIED;
+  const UNCLASSIFIED = 'No lead record';
+  const ctypeOf = r => r.b2cCategory || UNCLASSIFIED;
   const CTYPES = (() => {
     const seen = [...new Set(ROWS.map(ctypeOf))];
     const lead = CTYPE_LEAD.filter(c => seen.includes(c));
@@ -668,15 +675,19 @@
   const TAT_FIELD = { approve: 'tatApprove', convert: 'tatConvert', inprocess: 'tatInProcess' };
   const TAT_UNIVERSE = META.tatUniverse || { approve: null, convert: 'CONVERTED', inprocess: 'IN PROCESS' };
   const TAT_LABEL = {
-    approve: 'days from plan raised (Date, col B) to plan approved (Approval Date, col M), across every approved plan',
-    convert: 'days from plan approved (col M) to the client converting (convertedDate in the lead data), across clients now marked Converted',
-    inprocess: 'days from plan raised (Date, col B) to the lead reaching in-process (leadInProcessDate in the lead data), across clients now marked In process'
+    approve: 'days from <b>Date</b> to <b>Approval Date</b> on the plan approval sheet, across every approved plan',
+    convert: 'days from <b>Approval Date</b> to <b>convertedDate</b> in the lead data, across clients now marked Converted',
+    inprocess: 'days from <b>Date</b> to <b>leadInProcessDate</b> in the lead data, across clients now marked In process'
   };
   const TAT_SCOPE_NOTE = {
     approve: 'every approved plan in the current selection',
     convert: 'clients whose lead status is <b>Converted</b>',
     inprocess: 'clients whose lead status is <b>In process</b>'
   };
+  const TAT_SPLIT = META.tatSplit || ['convert'];
+  const TAT_EARLY_LABEL = META.tatEarlyLabel || { convert: 'Client Converted Before Drafting Financial Plan' };
+  const TAT_NEUTRAL_NEG_LABEL = META.tatNeutralNegLabel || { inprocess: 'Reached in-process before the plan was raised' };
+  const TAT_OLD_DAYS = META.tatOldClientDays == null ? 30 : META.tatOldClientDays;
   const TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30];
 
   const state = {
@@ -834,9 +845,9 @@
     // ----- Client type distribution -----
     const ctypesPresent = CTYPES.filter(c => sel.some(r => ctypeOf(r) === c));
     const abgTotal = sel.filter(r => CTYPE_LEAD.includes(ctypeOf(r))).length;
-    $('ctypeCap').innerHTML = 'Unique clients by <b>Client Type</b> (column H of the plan approval sheets). Percentages are of ' + sel.length + ' clients in the current selection.';
+    $('ctypeCap').innerHTML = 'Unique clients by <b>clientCategory</b> from the lead system, reached through the email mapping. Percentages are of ' + sel.length + ' clients in the current selection.';
     $('ctypeWarn').innerHTML = (abgTotal < sel.length)
-      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sel.length + ' clients here. The classification only starts partway through the data — earlier rows still carry the older <b>New / Existing</b> labels or are blank, so they are listed separately rather than being folded into a bucket they were never assigned.</p>'
+      ? '<p class="warnnote">Alpha / Beta / Gamma covers <b>' + abgTotal + '</b> of ' + sel.length + ' clients here. The rest sit in other categories the lead system uses, or have no lead record at all, and are listed as they come rather than being folded into a bucket they were never assigned.</p>'
       : '';
     $('ctypeTbl').innerHTML =
       '<thead><tr><th>Client type</th><th class="num">Clients</th><th class="num">% of all</th><th class="num">Matched</th><th class="num">Not matched</th></tr></thead><tbody>' +
@@ -904,15 +915,25 @@
     const tatUni = TAT_UNIVERSE[state.tat];
     const tatField = TAT_FIELD[state.tat];
     const tatRows = baseRows().filter(statusVisible).filter(r => !tatUni || r.status === tatUni);
-    const raw = tatRows.map(r => r[tatField]).filter(v => v !== null && v !== undefined);
-    const vals = raw.filter(v => v >= 0);
-    const denom = vals.length, negCount = raw.length - vals.length, missing = tatRows.length - raw.length;
+    const withVal = tatRows.filter(r => r[tatField] !== null && r[tatField] !== undefined);
+    const vals = withVal.filter(r => r[tatField] >= 0).map(r => r[tatField]);
+    const negRows = withVal.filter(r => r[tatField] < 0);
+    const denom = vals.length, negCount = negRows.length, missing = tatRows.length - withVal.length;
+    // Negative gaps split by whether the lead pre-dated the plan: a returning client, versus a
+    // milestone logged before the plan existed.
+    const splits = TAT_SPLIT.includes(state.tat);
+    const negOld = splits ? negRows.filter(r => r.convertPreDraftDays !== null &&
+                                                r.convertPreDraftDays !== undefined &&
+                                                r.convertPreDraftDays > TAT_OLD_DAYS).length : 0;
+    const negEarly = splits ? negRows.length - negOld : 0;
+    const neutralNeg = TAT_NEUTRAL_NEG_LABEL[state.tat];
     $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Scope is ' + TAT_SCOPE_NOTE[state.tat] +
       ' — <b>' + tatRows.length + '</b> plan' + (tatRows.length === 1 ? '' : 's') +
       '. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
     const notes = [];
     if (missing) notes.push('<b>' + missing + '</b> of the ' + tatRows.length + ' in scope are missing one of the two dates');
-    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> its baseline date');
+    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> its baseline date' +
+      (splits || neutralNeg ? ' — named at the foot of the table, as a share of the ' + tatRows.length + ' in scope' : ''));
     $('tatWarn').innerHTML = denom === 0
       ? '<p class="warnnote">No plan in the current selection has a usable value for this measure, so there is nothing to count. That usually means the source date column is empty in the export rather than that the turnaround was zero.</p>'
       : (notes.length
@@ -926,7 +947,16 @@
         return '<tr><td>&gt; ' + b + (b === 1 ? ' Day' : ' Days') + '</td><td class="num">' + n + '</td><td class="num">' + pct(n, denom) + '</td></tr>';
       }).join('') +
       '<tr class="totrow"><td>Plans measured</td><td class="num">' + denom + '</td><td class="num">' +
-      (med === null ? '–' : 'median ' + med + 'd') + '</td></tr></tbody>';
+      (med === null ? '–' : 'median ' + med + 'd') + '</td></tr>' +
+      // Negative gaps, named rather than silently dropped. Percentages here are of the measure's
+      // universe, not of the measured set, since these sit outside the bands above.
+      (splits && negCount
+        ? '<tr class="negrow"><td>Old Clients <span class="sub-pct">converted &gt; ' + TAT_OLD_DAYS + 'd before drafting</span></td><td class="num">' + negOld + '</td><td class="num">' + pct(negOld, tatRows.length) + '</td></tr>' +
+          '<tr class="negrow"><td>' + esc(TAT_EARLY_LABEL[state.tat]) + '</td><td class="num">' + negEarly + '</td><td class="num">' + pct(negEarly, tatRows.length) + '</td></tr>'
+        : (neutralNeg && negCount
+            ? '<tr class="negrow"><td>' + esc(neutralNeg) + '</td><td class="num">' + negCount + '</td><td class="num">' + pct(negCount, tatRows.length) + '</td></tr>'
+            : '')) +
+      '</tbody>';
 
     // ----- Client list -----
     const cols = [

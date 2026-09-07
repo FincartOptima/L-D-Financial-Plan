@@ -79,6 +79,28 @@ TAT_UNIVERSE = {
     "inprocess": "IN PROCESS",
 }
 
+# A conversion dated before the plan was raised is either a client who converted in an earlier
+# cycle and came back for a plan, or a conversion logged around the time of drafting but ahead of
+# it — the wrong order procedurally. The two are separated by how far back the conversion sits:
+# in this data the long tail runs to years (median 214 days) while the suspect cases cluster
+# within days of the plan.
+#
+# The lead's createdDate cannot make this distinction: a lead is always created before a plan is
+# drafted for it, so that test classifies every negative as an old client and never fires.
+TAT_OLD_CLIENT_DAYS = 30
+TAT_SPLIT_NEGATIVES = {"convert"}
+TAT_EARLY_LABEL = {
+    "convert": "Client Converted Before Drafting Financial Plan",
+}
+# In-process legitimately precedes drafting — the RM works the lead, then a plan is written — so
+# those negatives are reported as one neutral row rather than being judged.
+TAT_NEUTRAL_NEG_LABEL = {
+    "inprocess": "Reached in-process before the plan was raised",
+    # An approval dated before the plan was raised cannot happen in reality — it is a data entry
+    # slip in the sheet, so it is surfaced rather than quietly dropped.
+    "approve": "Approval Date precedes Date — check the sheet",
+}
+
 
 def scrub(value):
     return "" if value and LOOKS_LIKE_PII_RE.search(value) else value
@@ -214,6 +236,8 @@ def load_lead_master(path):
                 "isClient": s(r[idx["isClient"]]),
                 "convertedDt": parse_date(r[idx["convertedDate"]]),
                 "inProcessDt": parse_date(r[idx["leadInProcessDate"]]),
+                "createdDt": parse_date(r[idx["createdDate"]]),
+                "clientCategory": s(r[idx["clientCategory"]]),
             }
         return lead
     finally:
@@ -268,6 +292,12 @@ def load_plan_rows(path, lead, team_map):
 
                 raised_dt = gdate(r, "Date")
                 approved_dt = gdate(r, "Approval Date")
+                # How many days before the plan was raised (col B) the client converted, or None if
+                # the conversion is not before it. This is what separates a returning client from a
+                # conversion logged just ahead of drafting.
+                converted_dt = lead_rec["convertedDt"] if lead_rec else None
+                pre_draft = ((raised_dt - converted_dt).days
+                             if converted_dt and raised_dt and converted_dt < raised_dt else None)
                 rev = {k: gnum(r, header) for k, header in PRODUCTS}
                 rm_name = lead_rec["rm"] if lead_rec else ""
                 rows_out.append({
@@ -310,6 +340,10 @@ def load_plan_rows(path, lead, team_map):
                     #   approve   = plan raised (col B)    -> plan approved (col M)
                     #   convert   = plan approved (col M)  -> converted (b2c convertedDate)
                     #   inprocess = plan raised (col B)    -> in-process (b2c leadInProcessDate)
+                    "convertPreDraftDays": pre_draft,
+                    # Client category as the lead system holds it, for the clients whose email
+                    # mapped. Kept separate from the planning sheet's own "Client Type" column.
+                    "b2cCategory": lead_rec["clientCategory"] if lead_rec else "",
                     "tatApprove": day_gap(approved_dt, raised_dt),
                     "tatConvert": day_gap(lead_rec["convertedDt"] if lead_rec else None, approved_dt),
                     "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, raised_dt),
@@ -330,7 +364,7 @@ def dedupe_clients(rows):
     return list(by.values())
 
 
-DIMS = ("mk", "m", "q", "advisor", "src", "team", "platform", "clientType", "status")
+DIMS = ("mk", "m", "q", "advisor", "src", "team", "platform", "b2cCategory", "status")
 
 
 def build_cube(rows, with_measures=False):
@@ -348,7 +382,8 @@ def build_cube(rows, with_measures=False):
             c = cells[key] = {"n": 0}
             if with_measures:
                 c["rev"] = {k: 0.0 for k, _ in PRODUCTS}
-                c["tat"] = {name: {"d": 0, "neg": 0, "miss": 0, "b": [0] * len(TAT_BUCKETS)}
+                c["tat"] = {name: {"d": 0, "neg": 0, "negOld": 0, "negEarly": 0,
+                                   "miss": 0, "b": [0] * len(TAT_BUCKETS)}
                             for name, _ in TAT_FIELDS}
         c["n"] += 1
         if with_measures:
@@ -362,9 +397,20 @@ def build_cube(rows, with_measures=False):
                 if v is None:
                     t["miss"] += 1
                 elif v < 0:
-                    # event predates approval (e.g. an existing client converted years earlier):
-                    # held out of the denominator rather than counted as a zero-day turnaround
+                    # Event predates its baseline, so it is held out of the denominator rather than
+                    # counted as a zero-day turnaround. For convert/in-process it is also split by
+                    # whether the lead pre-dated the plan (see TAT_SPLIT_NEGATIVES).
                     t["neg"] += 1
+                    if name in TAT_SPLIT_NEGATIVES:
+                        gap = r["convertPreDraftDays"]
+                        if gap is None:
+                            # converted after drafting but before approval — still ahead of the
+                            # plan being signed off, so it belongs with the flagged group
+                            t["negEarly"] += 1
+                        elif gap > TAT_OLD_CLIENT_DAYS:
+                            t["negOld"] += 1
+                        else:
+                            t["negEarly"] += 1
                 else:
                     t["d"] += 1
                     for i, b in enumerate(TAT_BUCKETS):
@@ -471,12 +517,26 @@ def main():
         have = [r for r in scope if r[field] is not None]
         usable = [r for r in have if r[field] >= 0]
         who = f"status={universe}" if universe else "all plans"
-        print(f"  TAT days-to-{name}: universe {len(scope)} ({who}); "
-              f"{len(have)} have both dates; {len(usable)} usable (>=0)")
+        line = (f"  TAT days-to-{name}: universe {len(scope)} ({who}); "
+                f"{len(have)} have both dates; {len(usable)} usable (>=0)")
+        neg = [r for r in have if r[field] < 0]
+        if name in TAT_SPLIT_NEGATIVES:
+            old = sum(1 for r in neg
+                      if r["convertPreDraftDays"] is not None
+                      and r["convertPreDraftDays"] > TAT_OLD_CLIENT_DAYS)
+            line += (f"; {len(neg)} negative -> {old} old clients (>{TAT_OLD_CLIENT_DAYS}d before "
+                     f"drafting), {len(neg) - old} logged before drafting")
+        elif neg:
+            line += f"; {len(neg)} before the plan was raised (reported as one neutral row)"
+        print(line)
     ctypes = {}
     for r in clients:
         ctypes[r["clientType"] or "(blank)"] = ctypes.get(r["clientType"] or "(blank)", 0) + 1
-    print(f"  Client Type (col H): {ctypes}")
+    print(f"  Client Type (planning sheet): {ctypes}")
+    b2ccat = {}
+    for r in clients:
+        b2ccat[r["b2cCategory"] or "(blank)"] = b2ccat.get(r["b2cCategory"] or "(blank)", 0) + 1
+    print(f"  clientCategory (b2c):        {b2ccat}")
 
     meta = {
         "generated": datetime.datetime.now().strftime("%d %b %Y, %I:%M %p"),
@@ -490,7 +550,11 @@ def main():
     # ---- full detail (local only) ----
     meta = dict(meta,
                 products=[{"k": k, "label": label} for k, label in PRODUCTS],
-                tatUniverse=TAT_UNIVERSE)
+                tatUniverse=TAT_UNIVERSE,
+                tatSplit=sorted(TAT_SPLIT_NEGATIVES),
+                tatEarlyLabel=TAT_EARLY_LABEL,
+                tatNeutralNegLabel=TAT_NEUTRAL_NEG_LABEL,
+                tatOldClientDays=TAT_OLD_CLIENT_DAYS)
     full_payload = {"meta": meta, "rows": rows}
     full_html = embed(TEMPLATES / "full_dashboard.template.html", full_payload)
     (ROOT / "plan-approval-lead-status.html").write_text(full_html, encoding="utf-8")
@@ -506,11 +570,26 @@ def main():
         "teams": sorted({r["team"] for r in rows if r["team"]}),
         "platforms": sorted({r["platform"] for r in rows if r["platform"]}),
         "cube": {"tickets": build_cube(rows, with_measures=True), "clients": build_cube(clients)},
+        # DELIBERATE EXCEPTION: this is the only client-identifying data on the published page.
+        # It exists so the unmapped list can be chased down, and it is only acceptable because the
+        # repository is private. If the repo is ever made public again, remove this key — and note
+        # that anything already pushed stays in git history.
+        "unmapped": [
+            {"mk": r["mk"], "m": r["m"], "date": r["date"], "ticket": r["ticket"],
+             "clientType": r["clientType"], "name": r["name"], "email": r["email"],
+             "advisor": r["advisor"], "appr": r["appr"]}
+            for r in sorted(clients, key=lambda x: (x["mk"], x["date"], x["ticket"]))
+            if not r["matched"]
+        ],
     }
     public_html = embed(TEMPLATES / "public_dashboard.template.html", public_payload,
                         pii_scan_keys=["cube", "advisors", "sources", "teams", "platforms"])
     (ROOT / "index.html").write_text(public_html, encoding="utf-8")
-    print("Wrote index.html (aggregate only, no client names/emails)")
+    n_unmapped = len(public_payload["unmapped"])
+    print(f"Wrote index.html (aggregates + {n_unmapped} unmapped clients WITH names/emails)")
+    if n_unmapped:
+        print(f"  NOTE: index.html now carries {n_unmapped} client names and email addresses.")
+        print("        Only publish it from a PRIVATE repository.")
 
     return 0
 

@@ -574,9 +574,9 @@
         <div class="fgroup">
           <span class="flabel">Measure</span>
           <select id="fTat">
-            <option value="tatApprove">1 — Days taken to approve plans</option>
-            <option value="tatConvert">2 — Days taken to convert clients</option>
-            <option value="tatInProcess">3 — Days taken to reach in-process</option>
+            <option value="approve">1 — Days taken to approve plans</option>
+            <option value="convert">2 — Days taken to convert clients</option>
+            <option value="inprocess">3 — Days taken to reach in-process</option>
           </select>
         </div>
       </div>
@@ -665,10 +665,17 @@
     return lead.concat(rest, seen.includes(UNCLASSIFIED) ? [UNCLASSIFIED] : []);
   })();
 
+  const TAT_FIELD = { approve: 'tatApprove', convert: 'tatConvert', inprocess: 'tatInProcess' };
+  const TAT_UNIVERSE = META.tatUniverse || { approve: null, convert: 'CONVERTED', inprocess: 'IN PROCESS' };
   const TAT_LABEL = {
-    tatApprove: 'days from plan raised (Date) to plan approved (Approval Date)',
-    tatConvert: 'days from plan approved to client converted (convertedDate in the lead data)',
-    tatInProcess: 'days from plan approved to the lead reaching in-process (leadInProcessDate in the lead data)'
+    approve: 'days from plan raised (Date, col B) to plan approved (Approval Date, col M), across every approved plan',
+    convert: 'days from plan approved (col M) to the client converting (convertedDate in the lead data), across clients now marked Converted',
+    inprocess: 'days from plan raised (Date, col B) to the lead reaching in-process (leadInProcessDate in the lead data), across clients now marked In process'
+  };
+  const TAT_SCOPE_NOTE = {
+    approve: 'every approved plan in the current selection',
+    convert: 'clients whose lead status is <b>Converted</b>',
+    inprocess: 'clients whose lead status is <b>In process</b>'
   };
   const TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30];
 
@@ -677,7 +684,7 @@
     off: new Set(),
     sort: { key: 'mk', dir: 1 },
     product: 'all',
-    tat: 'tatApprove'
+    tat: 'approve'
   };
 
   const $ = id => document.getElementById(id);
@@ -889,18 +896,23 @@
       '<td class="num" title="' + moneyFull(revRows.filter(r => !r.matched).reduce((a, r) => a + revOf(r), 0)) + '">' + money(revRows.filter(r => !r.matched).reduce((a, r) => a + revOf(r), 0)) + '</td></tr></tbody>';
 
     // ----- Turnaround time -----
-    // Rows where the event predates the approval (negative gap) are held out of the denominator:
-    // e.g. an existing client who converted in 2022 and had a plan approved in 2026 did not take
-    // "-1516 days to convert" — the approval simply is not what drove that conversion. Leaving them
-    // in would inflate the denominator and understate every percentage.
-    const tatRows = baseRows().filter(statusVisible);
-    const raw = tatRows.map(r => r[state.tat]).filter(v => v !== null && v !== undefined);
+    // Each measure is scoped to the clients who reached that stage — conversion time is only asked
+    // of converted clients, in-process time only of in-process ones. Without that scoping every
+    // other client counts as "missing a date" and drags the percentages down.
+    // Rows where the event predates its baseline (negative gap) are also held out: an existing
+    // client who converted in 2022 against a 2026 plan did not take "-1516 days to convert".
+    const tatUni = TAT_UNIVERSE[state.tat];
+    const tatField = TAT_FIELD[state.tat];
+    const tatRows = baseRows().filter(statusVisible).filter(r => !tatUni || r.status === tatUni);
+    const raw = tatRows.map(r => r[tatField]).filter(v => v !== null && v !== undefined);
     const vals = raw.filter(v => v >= 0);
     const denom = vals.length, negCount = raw.length - vals.length, missing = tatRows.length - raw.length;
-    $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
+    $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Scope is ' + TAT_SCOPE_NOTE[state.tat] +
+      ' — <b>' + tatRows.length + '</b> plan' + (tatRows.length === 1 ? '' : 's') +
+      '. Each row counts plans taking strictly more than that many days; the bands overlap by design, so they do not add up to 100%.';
     const notes = [];
-    if (missing) notes.push('<b>' + missing + '</b> of ' + tatRows.length + ' plans in scope are missing one of the two dates');
-    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> the plan was approved (typically an existing client who converted earlier)');
+    if (missing) notes.push('<b>' + missing + '</b> of the ' + tatRows.length + ' in scope are missing one of the two dates');
+    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> its baseline date');
     $('tatWarn').innerHTML = denom === 0
       ? '<p class="warnnote">No plan in the current selection has a usable value for this measure, so there is nothing to count. That usually means the source date column is empty in the export rather than that the turnaround was zero.</p>'
       : (notes.length

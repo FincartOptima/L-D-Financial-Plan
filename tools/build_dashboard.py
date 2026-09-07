@@ -70,6 +70,15 @@ EMAIL_ALIASES = {
 TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30]
 TAT_FIELDS = [("approve", "tatApprove"), ("convert", "tatConvert"), ("inprocess", "tatInProcess")]
 
+# Each measure is scoped to the clients who actually reached that stage, so the denominator is the
+# population that could have produced the outcome. Without this, every non-converted client counts
+# as "missing a date" against the conversion measure and drags its percentages down.
+TAT_UNIVERSE = {
+    "approve": None,              # every approved plan has a raised and an approved date
+    "convert": "CONVERTED",
+    "inprocess": "IN PROCESS",
+}
+
 
 def scrub(value):
     return "" if value and LOOKS_LIKE_PII_RE.search(value) else value
@@ -297,9 +306,13 @@ def load_plan_rows(path, lead, team_map):
                     "rev": rev,
                     # TAT metrics, in whole days. null = the underlying date is missing, in which
                     # case the row is left out of that metric's denominator rather than counted as 0.
+                    # Each is measured from a different baseline on purpose:
+                    #   approve   = plan raised (col B)    -> plan approved (col M)
+                    #   convert   = plan approved (col M)  -> converted (b2c convertedDate)
+                    #   inprocess = plan raised (col B)    -> in-process (b2c leadInProcessDate)
                     "tatApprove": day_gap(approved_dt, raised_dt),
                     "tatConvert": day_gap(lead_rec["convertedDt"] if lead_rec else None, approved_dt),
-                    "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, approved_dt),
+                    "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, raised_dt),
                 })
         return rows_out
     finally:
@@ -342,6 +355,9 @@ def build_cube(rows, with_measures=False):
             for k, _ in PRODUCTS:
                 c["rev"][k] += r["rev"].get(k, 0.0)
             for name, field in TAT_FIELDS:
+                universe = TAT_UNIVERSE[name]
+                if universe and r["status"] != universe:
+                    continue          # out of scope for this measure — not missing, just not asked
                 v, t = r[field], c["tat"][name]
                 if v is None:
                     t["miss"] += 1
@@ -449,9 +465,14 @@ def main():
             print(f"    - {n}")
         if len(unresolved) > 10:
             print(f"    ... and {len(unresolved) - 10} more")
-    for label, field in [("approve", "tatApprove"), ("convert", "tatConvert"), ("in-process", "tatInProcess")]:
-        have = sum(1 for r in rows if r[field] is not None)
-        print(f"  TAT days-to-{label}: {have}/{len(rows)} rows have both dates")
+    for name, field in TAT_FIELDS:
+        universe = TAT_UNIVERSE[name]
+        scope = [r for r in rows if not universe or r["status"] == universe]
+        have = [r for r in scope if r[field] is not None]
+        usable = [r for r in have if r[field] >= 0]
+        who = f"status={universe}" if universe else "all plans"
+        print(f"  TAT days-to-{name}: universe {len(scope)} ({who}); "
+              f"{len(have)} have both dates; {len(usable)} usable (>=0)")
     ctypes = {}
     for r in clients:
         ctypes[r["clientType"] or "(blank)"] = ctypes.get(r["clientType"] or "(blank)", 0) + 1
@@ -467,7 +488,9 @@ def main():
     }
 
     # ---- full detail (local only) ----
-    meta = dict(meta, products=[{"k": k, "label": label} for k, label in PRODUCTS])
+    meta = dict(meta,
+                products=[{"k": k, "label": label} for k, label in PRODUCTS],
+                tatUniverse=TAT_UNIVERSE)
     full_payload = {"meta": meta, "rows": rows}
     full_html = embed(TEMPLATES / "full_dashboard.template.html", full_payload)
     (ROOT / "plan-approval-lead-status.html").write_text(full_html, encoding="utf-8")

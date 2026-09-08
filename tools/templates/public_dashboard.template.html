@@ -15,9 +15,6 @@
      paper so charts and tables lift off the page. Charcoal ink, clay and
      ochre accents. Still no gradients, no glass, no glow — separation is
      by rule, never by shadow.
-
-     Light is the default regardless of OS preference; dark remains as an
-     opt-in via the toggle, which stamps data-theme="dark".
   ================================================================== */
   :root {
     color-scheme: light;
@@ -49,10 +46,6 @@
     --font-sans:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --font-mono:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-    /* sequential ramp for the month heatmap — single hue, clay, light→dark */
-    --hm1: #F2DDD0; --hm2: #E0B79E; --hm3: #CB8C6A; --hm4: #B06844; --hm5: #8A4A2C;
-    --hmi1: #1A1614; --hmi2: #1A1614; --hmi3: #1A1614; --hmi4: #FBF8F2; --hmi5: #FBF8F2;
-
     /* series palette — validated against the paper surface */
     --s-converted:  #2a78d6;
     --s-inprocess:  #eb6834;
@@ -65,43 +58,6 @@
     --s-none:       #8A7A68;
 
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
-  }
-
-  /* Opt-in dark: espresso grounds, bone ink. Series steps re-validated
-     against the dark panel (#2A1E16). Not applied from OS preference —
-     the light theme is the intended look. */
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --ground:      #17100C;
-    --ground-2:    #1F160F;
-    --ground-3:    #120C09;
-    --panel:       #2A1E16;
-    --panel-2:     #33251B;
-    --ink:         #F2E9DC;
-    --ink-soft:    rgba(242,233,220,.80);
-    --ink-mute:    rgba(242,233,220,.56);
-    --chrome-ink:  #F2E9DC;
-    --chrome-ink-2: rgba(242,233,220,.78);
-    --chrome-ink-3: rgba(242,233,220,.52);
-    --clay:        #C4714E;
-    --clay-deep:   #DE9068;
-    --ochre:       #D9A85E;
-    --ochre-lt:    #D9A85E;
-    --rule-panel:  rgba(242,233,220,.18);
-    --rule-chrome: rgba(242,233,220,.20);
-    --edge:        rgba(242,233,220,.50);
-    --edge-chrome: rgba(242,233,220,.50);
-    --hm1: #4A2E1E; --hm2: #6B4229; --hm3: #8A5738; --hm4: #B0754B; --hm5: #D9A87E;
-    --hmi1: #F2E9DC; --hmi2: #F2E9DC; --hmi3: #F2E9DC; --hmi4: #1A1614; --hmi5: #1A1614;
-    --s-converted:  #3987e5;
-    --s-inprocess:  #d95926;
-    --s-reassigned: #199e70;
-    --s-onhold:     #c98500;
-    --s-followup:   #d55181;
-    --s-assigned:   #008300;
-    --s-dead:       #9085e9;
-    --s-other:      #e66767;
-    --s-none:       #97887A;
   }
 
   * { box-sizing: border-box; }
@@ -126,7 +82,6 @@
     opacity: .22;
     mix-blend-mode: multiply;
   }
-  :root[data-theme="dark"] body::after { opacity: .34; mix-blend-mode: overlay; }
 
   .wrap { max-width: 1360px; margin: 0 auto; padding: 0 22px 72px; }
 
@@ -347,23 +302,18 @@
   .sub-pct { color: var(--ink-mute); font-size: 11px; font-weight: 400; font-family: var(--font-mono); }
   .muted-col { color: var(--ink-mute); }
 
-  /* ---------- heatmap ---------- */
+  /* ---------- month matrix: plain grid, no conditional shading ---------- */
+  .hm table { border-collapse: collapse; }
+  .hm th, .hm td { border: 1px solid var(--rule-panel); }
   .hm td.cell {
     text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-    font-weight: 600; border: 2px solid var(--panel); border-radius: 0;
+    font-weight: 600; color: var(--ink);
   }
-  .hm td.cell[data-lvl="0"] { color: var(--ink-mute); font-weight: 400; }
-  .hm td.cell[data-lvl="1"] { background: var(--hm1); color: var(--hmi1); }
-  .hm td.cell[data-lvl="2"] { background: var(--hm2); color: var(--hmi2); }
-  .hm td.cell[data-lvl="3"] { background: var(--hm3); color: var(--hmi3); }
-  .hm td.cell[data-lvl="4"] { background: var(--hm4); color: var(--hmi4); }
-  .hm td.cell[data-lvl="5"] { background: var(--hm5); color: var(--hmi5); }
+  .hm td.cell[data-zero="1"] { color: var(--ink-mute); font-weight: 400; }
   .hm th.rowhead {
     text-transform: none; font-family: var(--font-sans); font-size: 12.5px;
-    color: var(--ink); font-weight: 600; letter-spacing: 0; border-bottom-color: var(--rule-panel);
+    color: var(--ink); font-weight: 600; letter-spacing: 0;
   }
-  .hm .scale { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-mute); margin-top: 14px; }
-  .hm .scale i { width: 28px; height: 10px; border-radius: 0; display: inline-block; }
 
   .warnnote {
     font-size: 12.5px; color: var(--ink-soft); background: var(--panel-2);
@@ -396,15 +346,9 @@
 
   <header class="top">
     <div class="grow">
-      <div class="badge">Aggregate view — no client names or emails on this page</div>
       <h1>Plan Approval → Lead Status Distribution</h1>
-      <p class="sub">
-        How clients on the <code>Plan Approval Sheet Q1</code> + <code>Plan Approval Sheet Q2</code> tabs
-        are distributed across <b>lead status</b>. Counts only, refreshed from the source trackers.
-      </p>
     </div>
     <div class="headmeta">
-      <button class="ghost" id="themeBtn" type="button">Dark mode</button>
       <span class="stamp" id="stamp"></span>
     </div>
   </header>
@@ -460,7 +404,7 @@
   <div class="two" id="sec-team">
     <section class="card">
       <p class="eyebrow">02 — By team</p>
-      <h2>Team-wise status distribution</h2>
+      <h2 id="teamSecTitle">Team-wise status distribution</h2>
       <p class="cap" id="teamChartCap"></p>
       <div class="vchart" id="teamChart"></div>
       <div class="vaxis" id="teamAxis"></div>
@@ -468,7 +412,7 @@
 
     <section class="card">
       <p class="eyebrow">02 — By team</p>
-      <h2>Team-wise status — table</h2>
+      <h2 id="teamTblTitle">Team-wise status — table</h2>
       <p class="cap">Same numbers as the chart on the left. Sorted by client count.</p>
       <div class="tscroll"><table id="teamTbl"></table></div>
     </section>
@@ -477,11 +421,8 @@
   <section class="card hm">
     <p class="eyebrow">03 — Over time</p>
     <h2>Month-wise lead status split</h2>
-    <p class="cap">Months across the top, lead status down the side. Cell shading is relative to the largest cell in the grid.</p>
+    <p class="cap">Months across the top, lead status down the side.</p>
     <div class="tscroll"><table id="monthMatrix"></table></div>
-    <div class="scale">Fewer
-      <i style="background:var(--hm1)"></i><i style="background:var(--hm2)"></i><i style="background:var(--hm3)"></i><i style="background:var(--hm4)"></i><i style="background:var(--hm5)"></i>
-      More</div>
     <div style="margin-top:14px"><button class="ghost" id="csvBtn" type="button">Download this table as CSV</button></div>
   </section>
 
@@ -708,16 +649,12 @@
 
     // Month-wise matrix
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);
-    const cellVals = [];
-    present.forEach(s => months.forEach(m => cellVals.push(sum(rows.filter(r => r.status === s.k && r.mk === m.mk)))));
-    const cellMax = Math.max(1, ...cellVals);
-    const lvl = n => n === 0 ? 0 : Math.min(5, Math.max(1, Math.ceil(n / cellMax * 5)));
     $('monthMatrix').innerHTML =
       '<thead><tr><th>Lead status</th>' + months.map(m => '<th class="num">' + esc(m.m) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
       present.map(s => {
         const cells = months.map(m => sum(rows.filter(r => r.status === s.k && r.mk === m.mk)));
         return '<tr><th class="rowhead">' + esc(s.label) + '</th>' +
-          cells.map((n, i) => '<td class="cell" data-lvl="' + lvl(n) + '" title="' + esc(s.label) + ' · ' + esc(months[i].m) + ': ' + n + '">' + (n || '–') + '</td>').join('') +
+          cells.map((n, i) => '<td class="cell" data-zero="' + (n === 0 ? 1 : 0) + '" title="' + esc(s.label) + ' · ' + esc(months[i].m) + ': ' + n + '">' + (n || '–') + '</td>').join('') +
           '<td class="num">' + cells.reduce((a, b) => a + b, 0) + '</td></tr>';
       }).join('') +
       '<tr class="totrow"><td>All statuses</td>' +
@@ -729,21 +666,30 @@
       '</tbody>';
 
     // ----- Team-wise status distribution -----
-    const teams = [...new Set(rows.map(r => r.team))]
-      .map(t => ({ t, n: sum(rows.filter(r => r.team === t)) }))
+    // With no team filter, one bar/row per team. Once a team is picked, "rows" is already scoped
+    // to that team (state.team feeds filt()), so re-grouping by RM breaks it down further instead
+    // of repeating a single team-sized bar.
+    const teamDim = state.team ? 'rm' : 'team';
+    const teamDimLabel = state.team ? 'RM' : 'Team';
+    const teamGroups = [...new Set(rows.map(r => r[teamDim]))]
+      .map(t => ({ t, n: sum(rows.filter(r => r[teamDim] === t)) }))
       .sort((a, b) => b.n - a.n).map(x => x.t);
-    const teamCols = teams.map(t => {
-      const tr = rows.filter(r => r.team === t);
-      return { key: t, label: t, total: sum(tr), parts: present.map(s => ({ k: s.k, c: s.c, tex: s.tex, n: sum(tr.filter(r => r.status === s.k)) })) };
+    const teamCols = teamGroups.map(t => {
+      const tr = rows.filter(r => r[teamDim] === t);
+      return { key: t, label: t || '(No RM)', total: sum(tr), parts: present.map(s => ({ k: s.k, c: s.c, tex: s.tex, n: sum(tr.filter(r => r.status === s.k)) })) };
     });
-    $('teamChartCap').innerHTML = 'Matched clients per team, stacked by lead status. Team comes from the RM on the lead record, via the employee reference sheet.';
+    $('teamSecTitle').textContent = state.team ? 'RM-wise status distribution' : 'Team-wise status distribution';
+    $('teamTblTitle').textContent = state.team ? 'RM-wise status — table' : 'Team-wise status — table';
+    $('teamChartCap').innerHTML = state.team
+      ? 'Matched clients per RM within <b>' + esc(state.team) + '</b>, stacked by lead status.'
+      : 'Matched clients per team, stacked by lead status. Team comes from the RM on the lead record, via the employee reference sheet.';
     drawBars($('teamChart'), $('teamAxis'), teamCols);
     $('teamTbl').innerHTML =
-      '<thead><tr><th>Team</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+      '<thead><tr><th>' + teamDimLabel + '</th>' + present.map(s => '<th class="num">' + esc(s.label) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
       teamCols.map(c => '<tr><td>' + esc(c.label) + '</td>' +
         c.parts.map(p => '<td class="num">' + (p.n || '–') + '</td>').join('') +
         '<td class="num">' + c.total + '</td></tr>').join('') +
-      '<tr class="totrow"><td>All teams</td>' +
+      '<tr class="totrow"><td>All ' + (state.team ? 'RMs' : 'teams') + '</td>' +
       present.map(s => '<td class="num">' + sum(rows.filter(r => r.status === s.k)) + '</td>').join('') +
       '<td class="num">' + total + '</td></tr></tbody>';
 
@@ -900,16 +846,17 @@
     const col = e.target.closest('.vcol');
     if (!col) { tip.style.opacity = 0; return; }
     const shown = shownCube();
-    if (seg) {                                    // a status band inside a team column
-      const team = seg.dataset.key, st = seg.dataset.status, s = sInfo(st);
-      const tr = shown.filter(r => r.team === team);
+    const teamDim = state.team ? 'rm' : 'team';
+    if (seg) {                                    // a status band inside a team/RM column
+      const grp = seg.dataset.key, st = seg.dataset.status, s = sInfo(st);
+      const tr = shown.filter(r => r[teamDim] === grp);
       const n = sum(tr.filter(r => r.status === st));
-      showTip('<div class="t">' + esc(team) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
-        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(tr)) + ' of ' + sum(tr) + ' in this team</div>', e);
+      showTip('<div class="t">' + esc(grp) + '</div><div class="r" style="--c:' + s.c + '"><i class="dot"></i>' + esc(s.label) +
+        '<span class="v">' + n + '</span></div><div class="m">' + pct(n, sum(tr)) + ' of ' + sum(tr) + ' in this ' + (state.team ? 'RM' : 'team') + '</div>', e);
     } else if (col.closest('#teamChart')) {
-      const team = col.dataset.key;
-      const n = sum(shown.filter(r => r.team === team));
-      showTip('<div class="t">' + esc(team) + '</div><div class="m">' + n + ' matched clients · ' + pct(n, sum(shown)) + ' of all matched</div>', e);
+      const grp = col.dataset.key;
+      const n = sum(shown.filter(r => r[teamDim] === grp));
+      showTip('<div class="t">' + esc(grp) + '</div><div class="m">' + n + ' matched clients · ' + pct(n, sum(shown)) + ' of all matched</div>', e);
     } else {
       const st = col.dataset.key, s = sInfo(st);
       const matchedAll = matchedCube();
@@ -971,12 +918,6 @@
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = 'plan-approval-lead-status-summary.csv'; a.click(); URL.revokeObjectURL(a.href);
-  });
-  // Light is the intended look and is the default whatever the OS is set to; dark is opt-in.
-  $('themeBtn').addEventListener('click', () => {
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
-    $('themeBtn').textContent = dark ? 'Dark mode' : 'Light mode';
   });
   $('stamp').textContent = 'Updated ' + META.generated;
 

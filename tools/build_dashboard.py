@@ -323,7 +323,10 @@ def load_plan_rows(path, lead, team_map):
                     "verdict": g(r, "Approved/Rejected"),
                     "status": lead_rec["leadStatus"] if lead_rec else "NOT IN LEAD DATA",
                     "matched": bool(lead_rec),
-                    "rm": lead_rec["rm"] if lead_rec else "",
+                    # Scrubbed like advisor/src: rm now also flows into the public cube as a
+                    # dimension, so a fat-fingered email/phone in this CRM field should blank out
+                    # rather than block the whole build via the PII guard.
+                    "rm": scrub(lead_rec["rm"]) if lead_rec else "",
                     "leadHead": lead_rec["leadHead"] if lead_rec else "",
                     "created": lead_rec["created"] if lead_rec else "",
                     "lastStatus": lead_rec["lastStatus"] if lead_rec else "",
@@ -364,13 +367,14 @@ def dedupe_clients(rows):
     return list(by.values())
 
 
-DIMS = ("mk", "m", "q", "advisor", "src", "team", "platform", "b2cCategory", "status")
+DIMS = ("mk", "m", "q", "advisor", "src", "team", "rm", "platform", "b2cCategory", "status")
 
 
 def build_cube(rows, with_measures=False):
-    """Groups rows down to (month, quarter, advisor, source, team, platform, client type, status).
-    No names, emails, ticket ids or dates survive this step, so the public page can slice these
-    dimensions but never reach a named individual.
+    """Groups rows down to (month, quarter, advisor, source, team, RM, platform, client type,
+    status). No client names, emails, ticket ids or dates survive this step, so the public page can
+    slice these dimensions but never reach a named client. RM is a staff name, not a client's — same
+    sensitivity class as advisor, which the cube already carries.
 
     with_measures adds revenue sums and turnaround bucket counts, which are per-approval figures —
     only pass it for the ticket-level cube, never the de-duplicated client one."""

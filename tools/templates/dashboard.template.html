@@ -508,6 +508,8 @@
   <div class="tabbar" role="tablist">
     <button class="tabbtn" type="button" data-tab="overview" aria-selected="true">Dashboard</button>
     <button class="tabbtn" type="button" data-tab="unmapped" aria-selected="false">Unmapped clients<span class="tabbadge" id="unmappedBadge">0</span></button>
+    <button class="tabbtn" type="button" data-tab="dateissues" aria-selected="false">Date issues<span class="tabbadge" id="dateIssuesBadge">0</span></button>
+    <button class="tabbtn" type="button" data-tab="noemail" aria-selected="false">Missing emails<span class="tabbadge" id="noEmailBadge">0</span></button>
   </div>
 
   <div id="panel-overview">
@@ -656,6 +658,26 @@
       <p class="cap" id="unmappedCap"></p>
       <div class="tblwrap"><table id="unmappedTbl"></table></div>
       <div style="margin-top:12px"><button class="ghost" id="unmappedCsvBtn" type="button">Download CSV</button></div>
+    </section>
+  </div>
+
+  <div id="panel-dateissues" hidden>
+    <section class="card">
+      <p class="eyebrow">Data quality</p>
+      <h2>Date issues</h2>
+      <p class="cap" id="dateIssuesCap"></p>
+      <div class="tblwrap"><table id="dateIssuesTbl"></table></div>
+      <div style="margin-top:12px"><button class="ghost" id="dateIssuesCsvBtn" type="button">Download CSV</button></div>
+    </section>
+  </div>
+
+  <div id="panel-noemail" hidden>
+    <section class="card">
+      <p class="eyebrow">Data quality</p>
+      <h2>Rows missing a client email</h2>
+      <p class="cap" id="noEmailCap"></p>
+      <div class="tblwrap"><table id="noEmailTbl"></table></div>
+      <div style="margin-top:12px"><button class="ghost" id="noEmailCsvBtn" type="button">Download CSV</button></div>
     </section>
   </div>
 
@@ -1142,6 +1164,47 @@
         : '<tr><td colspan="' + ucols.length + '">Every client in this selection mapped to a lead record.</td></tr>') +
       '</tbody>';
 
+    // ----- date issues tab -----
+    // Not scoped to the current filters or the master subject filter: this is a data-quality
+    // checklist for fixing the source sheets, not a view of the analysis, so it always shows
+    // every row from the sheets that made it into this build (April excluded, same as everywhere).
+    const dateIssues = DATA.dateIssues || [];
+    $('dateIssuesBadge').textContent = nf(dateIssues.length);
+    $('dateIssuesCap').innerHTML = dateIssues.length
+      ? 'Found <b>' + nf(dateIssues.length) + '</b> row' + (dateIssues.length === 1 ? '' : 's') +
+        ' where a date cell could not be trusted — either it does not parse as a date at all, or it parses to a ' +
+        'year outside FY 2026-27 (a likely typo, e.g. 11.06.<b>2926</b>). Each is bucketed by its Month column ' +
+        'instead so it does not distort the dashboard, but the sheet itself still needs correcting at the row shown.'
+      : 'No date issues found in the current build — every date cell in the workbook parsed to a value inside FY 2026-27.';
+    const dcols = [{ k: 'sheet', t: 'Sheet' }, { k: 'row', t: 'Row' }, { k: 'column', t: 'Column' },
+      { k: 'raw', t: 'Value as typed' }, { k: 'ticket', t: 'Ticket' }, { k: 'name', t: 'Client name' },
+      { k: 'email', t: 'Client mail ID' }, { k: 'issue', t: 'Problem' }];
+    $('dateIssuesTbl').innerHTML =
+      '<thead><tr>' + dcols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
+      (dateIssues.length
+        ? dateIssues.map(r => '<tr>' + dcols.map(c =>
+            '<td' + (c.k === 'name' || c.k === 'issue' ? ' class="wrapcell"' : '') +
+            (c.k === 'row' ? ' class="num"' : '') + '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
+        : '<tr><td colspan="' + dcols.length + '">Nothing to show.</td></tr>') + '</tbody>';
+
+    // ----- missing email tab -----
+    const noEmail = DATA.noEmailRows || [];
+    $('noEmailBadge').textContent = nf(noEmail.length);
+    $('noEmailCap').innerHTML = noEmail.length
+      ? 'Found <b>' + nf(noEmail.length) + '</b> row' + (noEmail.length === 1 ? '' : 's') +
+        ' with a client name but no email address. These cannot be matched to the lead data or de-duplicated ' +
+        'against the other sheets, so they take no part in the dashboard at all — add the email at the row shown to bring them in.'
+      : 'No rows are missing a client email in the current build.';
+    const ncols = [{ k: 'sheet', t: 'Sheet' }, { k: 'row', t: 'Row' }, { k: 'ticket', t: 'Ticket' },
+      { k: 'name', t: 'Client name' }, { k: 'month', t: 'Month' }, { k: 'date', t: 'Date as typed' }];
+    $('noEmailTbl').innerHTML =
+      '<thead><tr>' + ncols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
+      (noEmail.length
+        ? noEmail.map(r => '<tr>' + ncols.map(c =>
+            '<td' + (c.k === 'name' ? ' class="wrapcell"' : '') + (c.k === 'row' ? ' class="num"' : '') +
+            '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
+        : '<tr><td colspan="' + ncols.length + '">Nothing to show.</td></tr>') + '</tbody>';
+
     // ----- status chips -----
     $('statusChips').innerHTML = ANALYZE_STATUS.filter(s => CLIENTS.some(c => c.status === s.k)).map(s =>
       '<button class="chip" type="button" data-status="' + esc(s.k) + '" data-off="' + (state.off.has(s.k) ? 1 : 0) +
@@ -1202,6 +1265,8 @@
     document.querySelectorAll('.tabbtn').forEach(x => x.setAttribute('aria-selected', String(x === b)));
     $('panel-overview').hidden = b.dataset.tab !== 'overview';
     $('panel-unmapped').hidden = b.dataset.tab !== 'unmapped';
+    $('panel-dateissues').hidden = b.dataset.tab !== 'dateissues';
+    $('panel-noemail').hidden = b.dataset.tab !== 'noemail';
   }));
   $('subjChips').addEventListener('click', e => {
     const c = e.target.closest('.subjchip'); if (!c) return;
@@ -1263,6 +1328,16 @@
     const cols = ['date', 'ticket', 'tier', 'tenure', 'name', 'email', 'advisor', 'subjects'];
     const head = ['Date', 'Ticket ID', 'Tier', 'Tenure', 'Client Name', 'Client Mail ID', 'Advisor', 'Ticket Subjects'];
     downloadCsv('unmapped-clients.csv', head, rows.map(r => cols.map(c => r[c])));
+  });
+  $('dateIssuesCsvBtn').addEventListener('click', () => {
+    const cols = ['sheet', 'row', 'column', 'raw', 'issue', 'ticket', 'name', 'email'];
+    const head = ['Sheet', 'Row', 'Column', 'Value As Typed', 'Problem', 'Ticket', 'Client Name', 'Client Mail ID'];
+    downloadCsv('date-issues.csv', head, (DATA.dateIssues || []).map(r => cols.map(c => r[c])));
+  });
+  $('noEmailCsvBtn').addEventListener('click', () => {
+    const cols = ['sheet', 'row', 'ticket', 'name', 'month', 'date'];
+    const head = ['Sheet', 'Row', 'Ticket', 'Client Name', 'Month', 'Date As Typed'];
+    downloadCsv('missing-emails.csv', head, (DATA.noEmailRows || []).map(r => cols.map(c => r[c])));
   });
 
   // ---------- populate ----------

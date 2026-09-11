@@ -210,8 +210,13 @@ def parse_date(v):
     t = str(v).strip().replace("T", " ")
     if not t or t.upper() in ("N/A", "NA", "-", "NULL", "NONE"):
         return None
-    # %d.%m.%Y is how the FY sheets write "Tkt Recd Date" (01.04.2026).
-    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y"):
+    # "Sept" is a common hand-typed abbreviation (1 Sept 26) that Python's %b (which expects the
+    # 3-letter "Sep") does not match on its own.
+    t = re.sub(r"\bSept\b", "Sep", t, flags=re.IGNORECASE)
+    # %d.%m.%Y is how the FY sheets write "Tkt Recd Date" (01.04.2026); %d %b %y / %d %B %y is how
+    # some Plan Approval "Approval Date" cells are typed by hand (1 Sept 26).
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y",
+                "%d.%m.%Y", "%d %b %y", "%d %B %y", "%d %b %Y", "%d %B %Y"):
         try:
             return datetime.datetime.strptime(t[:26], fmt).date()
         except ValueError:
@@ -220,6 +225,17 @@ def parse_date(v):
         return datetime.date.fromisoformat(t[:10])
     except ValueError:
         return None
+
+
+def date_issue(raw, parsed):
+    """None if a date cell is fine; otherwise a short human reason, for the Date Issues tab.
+    'raw' is the non-blank cell value already known to exist - a blank cell is not a data error,
+    it just means that date has not happened yet (e.g. an open ticket's Approval Date)."""
+    if parsed is None:
+        return "Not recognized as a date"
+    if not (FY_START <= parsed <= FY_END):
+        return f"Parses to {parsed.isoformat()}, outside FY 2026-27 (likely a typo year)"
+    return None
 
 
 def day_gap(later, earlier):
@@ -318,7 +334,10 @@ def load_all_rows(path, lead, team_map):
     try:
         tickets = []
         diag = {"no_email": 0, "excluded_month": 0, "bad_dates": 0,
-                "per_sheet": {}, "missing_sheets": []}
+                "per_sheet": {}, "missing_sheets": [],
+                # Full detail behind the two counts above, for the Date Issues / Missing Email
+                # tabs - sheet name and Excel row number so the fix can be made at the source.
+                "date_issues": [], "no_email_rows": []}
 
         for cfg in SHEETS:
             if cfg["name"] not in wb.sheetnames:
@@ -359,28 +378,53 @@ def load_all_rows(path, lead, team_map):
                 i = col.get(name)
                 return parse_date(r[i]) if i is not None and i < len(r) else None
 
-            for r in raw[1:]:
+            for row_idx, r in enumerate(raw[1:], start=2):
                 month_raw = g(r, cfg["month"])
                 if month_raw.strip().lower() in EXCLUDE_MONTHS:
                     diag["excluded_month"] += 1
                     continue
 
+                name_val = g(r, "Client Name")
+                ticket_val = g(r, "Ticket Id", "SR No")
                 email = g(r, cfg["email"])
+
+                def record_date_issue(column, raw_val, parsed_val):
+                    issue = date_issue(raw_val, parsed_val) if raw_val else None
+                    if issue and name_val:
+                        diag["bad_dates"] += 1
+                        diag["date_issues"].append({
+                            "sheet": cfg["name"], "row": row_idx, "ticket": ticket_val,
+                            "name": name_val, "email": email, "column": column,
+                            "raw": raw_val, "issue": issue,
+                        })
+
+                # Date-quality checks run on every row with a client name, regardless of whether
+                # the email is present below - the point is to help someone go fix the source
+                # sheet, and a row can have both problems (missing email AND a bad date) at once.
+                raw_primary_date = g(r, cfg["date"])
+                row_dt = gdate(r, cfg["date"])
+                record_date_issue(cfg["date"], raw_primary_date, row_dt)
+                if cfg["kind"] == "pa":
+                    record_date_issue("Approval Date", g(r, "Approval Date"), gdate(r, "Approval Date"))
+
                 key = norm_key(email)
                 key = EMAIL_ALIASES.get(key, key)
                 if not key:
-                    # No email: unjoinable and un-dedupable. Counted, not guessed at.
-                    if g(r, "Client Name"):
+                    # No email: unjoinable and un-dedupable. Counted, not guessed at. A row with
+                    # no name at all is just blank filler, not a mistake worth surfacing.
+                    if name_val:
                         diag["no_email"] += 1
+                        diag["no_email_rows"].append({
+                            "sheet": cfg["name"], "row": row_idx, "ticket": ticket_val,
+                            "name": name_val, "month": month_raw, "date": g(r, cfg["date"]),
+                        })
                     continue
 
                 # The typed date is not trustworthy on its own: the FY sheets contain finger-slips
                 # like 11.06.2926 and 04.07.2027 whose Month column still reads correctly. So the
                 # month name drives the bucket, and a date outside the financial year is discarded
                 # rather than allowed to invent a month (or a nonsense turnaround).
-                row_dt = gdate(r, cfg["date"])
                 if row_dt and not (FY_START <= row_dt <= FY_END):
-                    diag["bad_dates"] += 1
                     row_dt = None
 
                 mnum, mlabel = MONTHS.get(month_raw.lower(), (0, ""))
@@ -423,7 +467,11 @@ def load_all_rows(path, lead, team_map):
 
                 if cfg["kind"] == "pa":
                     raised_dt = row_dt
+                    # Already checked and, if bad, recorded above (record_date_issue) - just apply
+                    # the same "out of range means unusable" rule the primary date got.
                     approved_dt = gdate(r, "Approval Date")
+                    if approved_dt and not (FY_START <= approved_dt <= FY_END):
+                        approved_dt = None
                     converted_dt = lead_rec["convertedDt"] if lead_rec else None
                     rec.update({
                         "appdate": s(approved_dt) if approved_dt else "",
@@ -601,10 +649,14 @@ def main():
         print(f"  WARNING: sheet(s) not found in the workbook: {diag['missing_sheets']}")
     print(f"  excluded {diag['excluded_month']} rows from {'/'.join(sorted(EXCLUDE_MONTHS)).title()} (by request)")
     print(f"  skipped  {diag['no_email']} rows that carry a client name but no email "
-          f"(cannot be joined to lead data or de-duplicated)")
+          f"(cannot be joined to lead data or de-duplicated) - see the Missing Emails tab")
     if diag["bad_dates"]:
-        print(f"  {diag['bad_dates']} rows had a date outside FY 2026-27 (typo years such as "
-              f"11.06.2926) - bucketed by their Month column instead")
+        print(f"  {diag['bad_dates']} date cells could not be trusted (unparseable, or a typo "
+              f"year like 11.06.2926) - see the Date Issues tab")
+        for it in diag["date_issues"][:10]:
+            print(f"    {it['sheet']} row {it['row']} [{it['column']}]: {it['raw']!r} - {it['issue']}")
+        if len(diag["date_issues"]) > 10:
+            print(f"    ... and {len(diag['date_issues']) - 10} more")
 
     matched = sum(1 for c in clients if c["matched"])
     in_pa = sum(1 for c in clients if c["inPA"])
@@ -688,8 +740,13 @@ def main():
          "advisor": c["advisor"], "subjects": ", ".join(c["subjects"])}
         for c in clients if not c["matched"]
     ]
-    full_payload = {"meta": dict(meta, hasPII=True), "clients": clients,
-                    "tickets": pa_tickets, "unmapped": unmapped_list}
+    # Same deliberate exception as unmapped_list: these two are for going back to the source
+    # sheets to fix a specific row, so they carry name/email and a sheet + Excel row number.
+    date_issues_list = diag["date_issues"]
+    no_email_list = diag["no_email_rows"]
+
+    full_payload = {"meta": dict(meta, hasPII=True), "clients": clients, "tickets": pa_tickets,
+                    "unmapped": unmapped_list, "dateIssues": date_issues_list, "noEmailRows": no_email_list}
     full_html = embed(TEMPLATES / "dashboard.template.html", full_payload)
     (ROOT / "plan-approval-lead-status.html").write_text(full_html, encoding="utf-8")
     print("Wrote plan-approval-lead-status.html (full detail, local only)")
@@ -711,6 +768,8 @@ def main():
         # repository is private. If the repo is ever made public again, remove this key - and note
         # that anything already pushed stays in git history.
         "unmapped": unmapped_list,
+        "dateIssues": date_issues_list,
+        "noEmailRows": no_email_list,
     }
     public_html = embed(TEMPLATES / "dashboard.template.html", public_payload,
                         pii_scan_keys=["clients", "tickets"])

@@ -439,6 +439,8 @@ def load_all_rows(path, lead, team_map):
 
                 rec = {
                     "kind": cfg["kind"],
+                    "sheet": cfg["name"],
+                    "row": row_idx,
                     "q": cfg["q"],
                     "mk": "%04d-%02d" % (year, mnum) if mnum else "zzzz",
                     "m": "%s %d" % (mlabel, year) if mnum else (mlabel or "Unknown"),
@@ -532,9 +534,12 @@ def build_clients(tickets):
                 "status": t["status"], "matched": t["matched"], "rm": t["rm"], "team": t["team"],
                 "platform": t["platform"], "src": t["src"], "b2cCategory": t["b2cCategory"],
                 "created": t["created"], "converted": t["converted"],
-                "date": t["date"],
+                "date": t["date"], "locations": [],
             }
         c["nTickets"] += 1
+        # Every source row this client came from, so a client that needs fixing (no lead record,
+        # say) can be found in the sheet rather than just named.
+        c["locations"].append(f"{t['sheet']} row {t['row']}")
         if t["kind"] == "pa":
             c["inPA"] = True
             c["nPA"] += 1
@@ -569,6 +574,7 @@ def build_clients(tickets):
         c["subjKey"] = "|".join(subs)
         c["tier"] = c["tier"] or BLANK
         c["tenure"] = c["tenure"] or BLANK
+        c["locations"] = "; ".join(c["locations"])
         c["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
         out.append(c)
     out.sort(key=lambda r: (r["mk"], r["name"].lower()))
@@ -737,7 +743,7 @@ def main():
     unmapped_list = [
         {"mk": c["mk"], "m": c["m"], "date": c["date"], "ticket": c["ticket"],
          "tier": c["tier"], "tenure": c["tenure"], "name": c["name"], "email": c["email"],
-         "advisor": c["advisor"], "subjects": ", ".join(c["subjects"])}
+         "advisor": c["advisor"], "subjects": ", ".join(c["subjects"]), "locations": c["locations"]}
         for c in clients if not c["matched"]
     ]
     # Same deliberate exception as unmapped_list: these two are for going back to the source

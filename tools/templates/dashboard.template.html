@@ -1154,12 +1154,13 @@
       'the rest read off a lead record these clients do not have.';
     const ucols = [{ k: 'date', t: 'Date' }, { k: 'ticket', t: 'Ticket ID' }, { k: 'tier', t: 'Tier' },
       { k: 'tenure', t: 'Tenure' }, { k: 'name', t: 'Client name' }, { k: 'email', t: 'Client mail ID' },
-      { k: 'advisor', t: 'Advisor / RM' }, { k: 'subjects', t: 'Ticket subjects' }];
+      { k: 'advisor', t: 'Advisor / RM' }, { k: 'subjects', t: 'Ticket subjects' },
+      { k: 'locations', t: 'Sheet / Row' }];
     $('unmappedTbl').innerHTML =
       '<thead><tr>' + ucols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
       (unmappedAll.length
         ? unmappedAll.map(r => '<tr>' + ucols.map(c =>
-            '<td' + (c.k === 'name' || c.k === 'subjects' ? ' class="wrapcell"' : '') + '>' +
+            '<td' + (c.k === 'name' || c.k === 'subjects' || c.k === 'locations' ? ' class="wrapcell"' : '') + '>' +
             esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
         : '<tr><td colspan="' + ucols.length + '">Every client in this selection mapped to a lead record.</td></tr>') +
       '</tbody>';
@@ -1325,8 +1326,8 @@
     const rows = (DATA.unmapped || []).filter(r =>
       (!state.month || r.mk === state.month) && (!state.tier || r.tier === state.tier) &&
       (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor));
-    const cols = ['date', 'ticket', 'tier', 'tenure', 'name', 'email', 'advisor', 'subjects'];
-    const head = ['Date', 'Ticket ID', 'Tier', 'Tenure', 'Client Name', 'Client Mail ID', 'Advisor', 'Ticket Subjects'];
+    const cols = ['date', 'ticket', 'tier', 'tenure', 'name', 'email', 'advisor', 'subjects', 'locations'];
+    const head = ['Date', 'Ticket ID', 'Tier', 'Tenure', 'Client Name', 'Client Mail ID', 'Advisor', 'Ticket Subjects', 'Sheet / Row'];
     downloadCsv('unmapped-clients.csv', head, rows.map(r => cols.map(c => r[c])));
   });
   $('dateIssuesCsvBtn').addEventListener('click', () => {

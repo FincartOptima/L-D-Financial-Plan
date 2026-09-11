@@ -2,14 +2,26 @@
 Rebuilds both dashboards from the latest source workbooks in the project folder:
 
   - plan-approval-lead-status.html   full detail, client names + emails, LOCAL ONLY (git-ignored)
-  - index.html                       aggregate counts only, no client-level data, PUBLISHED to GitHub Pages
+  - index.html                       de-identified, PUBLISHED (private repo only - see the
+                                     "unmapped" note in main() for the one exception)
+
+Both are rendered from the SAME template (templates/dashboard.template.html); only the payload
+differs. That is deliberate - when the two pages had separate templates they drifted apart and
+grew inconsistent bugs.
+
+The client universe is the de-duplicated union of all four data sheets, keyed on client email:
+
+  - Plan Approval Sheet Q1 / Q2   the approval base, and the only source of revenue and of the
+                                  dates the turnaround measures need. Always counted.
+  - FY 2026-2027 Q1 / Q2          every planning ticket. Each carries a Ticket Subject, and the
+                                  dashboard's master filter decides which subjects get added on
+                                  top of the approval base.
 
 Source files are auto-detected by pattern + picked by most-recent modified time, so this
 still works after the b2c export and the planning workbook get replaced with new filenames:
 
   - b2c / lead export:      FIN<digits>_*.xlsx      (sheet 'Data')
-  - plan approval workbook: Financial Planning Tickets Summary-Dashboard*.xlsx
-                             (tabs 'Plan Approval Sheet Q1' and 'Plan Approval Sheet Q2')
+  - planning workbook:      Financial Planning Tickets Summary-Dashboard*.xlsx
 
 Run with no arguments: `python tools/build_dashboard.py`
 """
@@ -28,6 +40,51 @@ TEMPLATES = Path(__file__).resolve().parent / "templates"
 B2C_RE = re.compile(r"^FIN\d+_.*\.xlsx$", re.IGNORECASE)
 PLAN_RE = re.compile(r"^Financial Planning Tickets Summary-Dashboard.*\.xlsx$", re.IGNORECASE)
 EMP_RE = re.compile(r"^EMPLOYEE_REF.*\.xlsx$", re.IGNORECASE)
+
+# The workbook's four data sheets, read into one de-duplicated client universe keyed on email.
+#   kind "pa" - Plan Approval sheets: carry revenue and the dates the turnaround measures need.
+#   kind "fy" - FY ticket sheets:     carry Ticket Subject, which drives the master filter.
+# Column names differ between sheets (Email Id vs Client Mail ID) and even between quarters of the
+# same kind, so every field is looked up by header name per sheet, never by position.
+SHEETS = [
+    {"name": "Plan Approval Sheet Q1", "kind": "pa", "q": "Q1", "email": "Email Id",     "month": "D",     "date": "Date"},
+    {"name": "Plan Approval Sheet Q2", "kind": "pa", "q": "Q2", "email": "Email Id",     "month": "D",     "date": "Date"},
+    {"name": "FY 2026-2027 Q1",        "kind": "fy", "q": "Q1", "email": "Client Mail ID", "month": "Month", "date": "Tkt Recd Date"},
+    {"name": "FY 2026-2027 Q2",        "kind": "fy", "q": "Q2", "email": "Client Mail ID", "month": "Month", "date": "Tkt Recd Date"},
+]
+
+# Dropped wholesale: this month's FY rows are almost entirely unusable (274 of 275 carry no client
+# email at all, so they can never join the lead data), and it was excluded by request.
+EXCLUDE_MONTHS = {"april"}
+
+# The financial year the workbook covers. Dates outside it are treated as data-entry slips.
+FY_START = datetime.date(2026, 4, 1)
+FY_END = datetime.date(2027, 3, 31)
+
+# The Client Type column holds two unrelated taxonomies depending on which sheet it came from:
+# the FY sheets grade clients Alpha/Beta/Gamma (tier), the Plan Approval sheets record New/Existing
+# (tenure). They are kept as separate dimensions rather than merged, because a client can be both
+# ("Alpha" and "New") and the two vocabularies are not comparable to each other.
+TIER_VALUES = {"alpha": "Alpha", "beta": "Beta", "gamma": "Gamma", "gama": "Gamma"}
+TENURE_VALUES = {"new": "New", "existing": "Existing"}
+BLANK = "Blank"
+
+
+def client_tier(raw):
+    """FY-sheet Client Type -> canonical tier. Case and the recurring 'Gama' typo are folded in;
+    anything else the sheet contains is kept verbatim so a new grade shows up rather than vanishing."""
+    t = (raw or "").strip()
+    if not t:
+        return ""
+    return TIER_VALUES.get(t.lower(), t)
+
+
+def client_tenure(raw):
+    """Plan-Approval Client Type -> canonical tenure (New / Existing)."""
+    t = (raw or "").strip()
+    if not t:
+        return ""
+    return TENURE_VALUES.get(t.lower(), t)
 
 # Revenue/allocation columns on the plan approval tabs, in the order shown in the product filter.
 # "All products" sums these. (Monthly Revised Surplus is a monthly cashflow figure rather than an
@@ -153,7 +210,8 @@ def parse_date(v):
     t = str(v).strip().replace("T", " ")
     if not t or t.upper() in ("N/A", "NA", "-", "NULL", "NONE"):
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+    # %d.%m.%Y is how the FY sheets write "Tkt Recd Date" (01.04.2026).
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y"):
         try:
             return datetime.datetime.strptime(t[:26], fmt).date()
         except ValueError:
@@ -244,22 +302,46 @@ def load_lead_master(path):
         wb.close()
 
 
-def load_plan_rows(path, lead, team_map):
+def load_all_rows(path, lead, team_map):
+    """Reads all four data sheets into a de-duplicated client universe keyed on email.
+
+    Returns (tickets, clients, diag):
+      tickets - one record per source row that carries an email. Plan-Approval tickets additionally
+                carry revenue and the turnaround measures; FY tickets carry a Ticket Subject.
+      clients - one record per distinct email, unioned across every sheet.
+      diag    - counts for the build log, so rows dropped here are reported rather than vanishing.
+
+    A row with no email cannot be joined to the lead data or de-duplicated against the other
+    sheets, so it is skipped and counted in diag instead of being silently folded in.
+    """
     wb = openpyxl.load_workbook(path, data_only=True)
     try:
-        rows_out = []
-        for sheet, quarter in [("Plan Approval Sheet Q1", "Q1"), ("Plan Approval Sheet Q2", "Q2")]:
-            ws = wb[sheet]
+        tickets = []
+        diag = {"no_email": 0, "excluded_month": 0, "bad_dates": 0,
+                "per_sheet": {}, "missing_sheets": []}
+
+        for cfg in SHEETS:
+            if cfg["name"] not in wb.sheetnames:
+                diag["missing_sheets"].append(cfg["name"])
+                continue
+            ws = wb[cfg["name"]]
             raw = list(ws.iter_rows(values_only=True))
+            if not raw:
+                continue
             hdr = [s(c) for c in raw[0]]
             col = {name: i for i, name in enumerate(hdr) if name}
-            # Columns are looked up by header name, never by position: the Q1 and Q2 tabs have
-            # different layouts (Q2 adds Lead Status / Client Status), so positional reads would
-            # silently pull the wrong column on one of them.
+            kept = 0
 
-            def g(r, name):
-                i = col.get(name)
-                return s(r[i]) if i is not None and i < len(r) else ""
+            def g(r, *names):
+                """First non-empty value among the given header names — quarters of the same sheet
+                spell some columns differently (e.g. 'Lead Status' vs 'Lead Statues')."""
+                for name in names:
+                    i = col.get(name)
+                    if i is not None and i < len(r):
+                        v = s(r[i])
+                        if v:
+                            return v
+                return ""
 
             def gnum(r, name):
                 i = col.get(name)
@@ -278,157 +360,170 @@ def load_plan_rows(path, lead, team_map):
                 return parse_date(r[i]) if i is not None and i < len(r) else None
 
             for r in raw[1:]:
-                ticket = g(r, "Ticket Id")
-                if not ticket:
+                month_raw = g(r, cfg["month"])
+                if month_raw.strip().lower() in EXCLUDE_MONTHS:
+                    diag["excluded_month"] += 1
                     continue
-                email = g(r, "Email Id")
+
+                email = g(r, cfg["email"])
                 key = norm_key(email)
                 key = EMAIL_ALIASES.get(key, key)
-                mraw = g(r, "D").lower()
-                mnum, mlabel = MONTHS.get(mraw, (0, g(r, "D") or "Unknown"))
-                date = g(r, "Date")
-                year = int(date[:4]) if len(date) >= 4 and date[:4].isdigit() else datetime.date.today().year
-                lead_rec = lead.get(key)
+                if not key:
+                    # No email: unjoinable and un-dedupable. Counted, not guessed at.
+                    if g(r, "Client Name"):
+                        diag["no_email"] += 1
+                    continue
 
-                raised_dt = gdate(r, "Date")
-                approved_dt = gdate(r, "Approval Date")
-                # How many days before the plan was raised (col B) the client converted, or None if
-                # the conversion is not before it. This is what separates a returning client from a
-                # conversion logged just ahead of drafting.
-                converted_dt = lead_rec["convertedDt"] if lead_rec else None
-                pre_draft = ((raised_dt - converted_dt).days
-                             if converted_dt and raised_dt and converted_dt < raised_dt else None)
-                rev = {k: gnum(r, header) for k, header in PRODUCTS}
+                # The typed date is not trustworthy on its own: the FY sheets contain finger-slips
+                # like 11.06.2926 and 04.07.2027 whose Month column still reads correctly. So the
+                # month name drives the bucket, and a date outside the financial year is discarded
+                # rather than allowed to invent a month (or a nonsense turnaround).
+                row_dt = gdate(r, cfg["date"])
+                if row_dt and not (FY_START <= row_dt <= FY_END):
+                    diag["bad_dates"] += 1
+                    row_dt = None
+
+                mnum, mlabel = MONTHS.get(month_raw.lower(), (0, ""))
+                if not mnum and row_dt:
+                    mnum, mlabel = row_dt.month, row_dt.strftime("%b")
+                if not mnum:
+                    mlabel = month_raw or "Unknown"
+                # FY 2026-27: April-December falls in 2026, January-March in 2027.
+                year = 2026 if mnum >= 4 else 2027
+                lead_rec = lead.get(key)
                 rm_name = lead_rec["rm"] if lead_rec else ""
-                rows_out.append({
-                    "q": quarter,
+
+                rec = {
+                    "kind": cfg["kind"],
+                    "q": cfg["q"],
                     "mk": "%04d-%02d" % (year, mnum) if mnum else "zzzz",
                     "m": "%s %d" % (mlabel, year) if mnum else (mlabel or "Unknown"),
-                    "date": date,
-                    "ticket": ticket,
-                    "advisor": scrub(g(r, "Advisor")),
-                    "name": g(r, "Client Name"),
-                    "email": email,
-                    "clientType": g(r, "Client Type"),
+                    "date": s(row_dt) if row_dt else "",
                     "key": key,
-                    # Lead source comes from the b2c record the email mapped to (landingPage —
-                    # the column whose vocabulary matches the planning sheet: Direct Registration,
-                    # FinancialPlan_VG, Workshop...). Unmatched clients have no b2c record, so they
-                    # fall back to whatever the planning sheet recorded rather than going blank.
-                    "src": scrub(lead_rec["landing"] if lead_rec and lead_rec["landing"] else g(r, "Lead Source")),
-                    "srcSheet": scrub(g(r, "Lead Source")),
-                    "draft": g(r, "Drafted By"),
+                    "email": email,
+                    "name": g(r, "Client Name"),
+                    "subject": g(r, "Ticket Subject") if cfg["kind"] == "fy" else "",
+                    "tierRaw": client_tier(g(r, "Client Type")) if cfg["kind"] == "fy" else "",
+                    "tenureRaw": client_tenure(g(r, "Client Type")) if cfg["kind"] == "pa" else "",
+                    "ticket": g(r, "Ticket Id", "SR No"),
+                    "advisor": scrub(g(r, "Advisor", "RM Name")),
                     "appr": g(r, "Approved By"),
-                    "appdate": g(r, "Approval Date"),
-                    "verdict": g(r, "Approved/Rejected"),
+                    "sheetSrc": scrub(g(r, "Lead Source")),
+                    # joined from the lead export
                     "status": lead_rec["leadStatus"] if lead_rec else "NOT IN LEAD DATA",
                     "matched": bool(lead_rec),
-                    # Scrubbed like advisor/src: rm now also flows into the public cube as a
-                    # dimension, so a fat-fingered email/phone in this CRM field should blank out
-                    # rather than block the whole build via the PII guard.
-                    "rm": scrub(lead_rec["rm"]) if lead_rec else "",
-                    "leadHead": lead_rec["leadHead"] if lead_rec else "",
-                    "created": lead_rec["created"] if lead_rec else "",
-                    "lastStatus": lead_rec["lastStatus"] if lead_rec else "",
-                    "converted": lead_rec["converted"] if lead_rec else "",
-                    "landing": lead_rec["landing"] if lead_rec else "",
-                    "platform": lead_rec["platform"] if lead_rec else "",
-                    "category": lead_rec["category"] if lead_rec else "",
-                    "isClient": lead_rec["isClient"] if lead_rec else "",
+                    "rm": scrub(rm_name),
                     "team": team_map.get(name_key(rm_name), "Unassigned" if rm_name else "No lead record"),
-                    "rev": rev,
-                    # TAT metrics, in whole days. null = the underlying date is missing, in which
-                    # case the row is left out of that metric's denominator rather than counted as 0.
-                    # Each is measured from a different baseline on purpose:
-                    #   approve   = plan raised (col B)    -> plan approved (col M)
-                    #   convert   = plan approved (col M)  -> converted (b2c convertedDate)
-                    #   inprocess = plan raised (col B)    -> in-process (b2c leadInProcessDate)
-                    "convertPreDraftDays": pre_draft,
-                    # Client category as the lead system holds it, for the clients whose email
-                    # mapped. Kept separate from the planning sheet's own "Client Type" column.
+                    "platform": lead_rec["platform"] if lead_rec else "",
+                    "src": scrub(lead_rec["landing"] if lead_rec and lead_rec["landing"] else g(r, "Lead Source")),
                     "b2cCategory": lead_rec["clientCategory"] if lead_rec else "",
-                    "tatApprove": day_gap(approved_dt, raised_dt),
-                    "tatConvert": day_gap(lead_rec["convertedDt"] if lead_rec else None, approved_dt),
-                    "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, raised_dt),
-                })
-        return rows_out
+                    "created": lead_rec["created"] if lead_rec else "",
+                    "converted": lead_rec["converted"] if lead_rec else "",
+                }
+
+                if cfg["kind"] == "pa":
+                    raised_dt = row_dt
+                    approved_dt = gdate(r, "Approval Date")
+                    converted_dt = lead_rec["convertedDt"] if lead_rec else None
+                    rec.update({
+                        "appdate": s(approved_dt) if approved_dt else "",
+                        "verdict": g(r, "Approved/Rejected"),
+                        "rev": {k: gnum(r, header) for k, header in PRODUCTS},
+                        "convertPreDraftDays": ((raised_dt - converted_dt).days
+                                                if converted_dt and raised_dt and converted_dt < raised_dt else None),
+                        "tatApprove": day_gap(approved_dt, raised_dt),
+                        "tatConvert": day_gap(converted_dt, approved_dt),
+                        "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, raised_dt),
+                    })
+                else:
+                    rec.update({"appdate": "", "verdict": "", "rev": {k: 0.0 for k, _ in PRODUCTS},
+                                "convertPreDraftDays": None,
+                                "tatApprove": None, "tatConvert": None, "tatInProcess": None})
+
+                tickets.append(rec)
+                kept += 1
+
+            diag["per_sheet"][cfg["name"]] = kept
+
+        clients = build_clients(tickets)
+        # Stamp each ticket with its client's resolved tier / tenure / subject-set so the
+        # ticket-level cube (revenue, turnaround) can be sliced by exactly the same dimensions and
+        # the same master filter as the client-level one.
+        by_key = {c["key"]: c for c in clients}
+        for t in tickets:
+            c = by_key.get(t["key"])
+            if c:
+                t["tier"], t["tenure"] = c["tier"], c["tenure"]
+                t["subjKey"], t["inPA"] = c["subjKey"], c["inPA"]
+            else:
+                t["tier"] = t["tenure"] = BLANK
+                t["subjKey"], t["inPA"] = "", False
+        return tickets, clients, diag
     finally:
         wb.close()
 
 
-def dedupe_clients(rows):
-    """One row per client email: the row with the latest (month, date, ticket) wins.
-    Mirrors the identical tie-break used client-side in the full dashboard's JS."""
+def build_clients(tickets):
+    """Collapses the ticket records into one row per email — the de-duplicated union.
+
+    A client's month is the EARLIEST they appear across every sheet (when they entered the
+    pipeline), so each client lands in exactly one month and the month-wise table still totals to
+    the client count. Revenue sums across all of that client's plan approvals.
+    """
     by = {}
-    for r in rows:
-        prev = by.get(r["key"])
-        if not prev or (r["mk"] + r["date"] + r["ticket"]) > (prev["mk"] + prev["date"] + prev["ticket"]):
-            by[r["key"]] = r
-    return list(by.values())
-
-
-DIMS = ("mk", "m", "q", "advisor", "src", "team", "rm", "platform", "b2cCategory", "status")
-
-
-def build_cube(rows, with_measures=False):
-    """Groups rows down to (month, quarter, advisor, source, team, RM, platform, client type,
-    status). No client names, emails, ticket ids or dates survive this step, so the public page can
-    slice these dimensions but never reach a named client. RM is a staff name, not a client's — same
-    sensitivity class as advisor, which the cube already carries.
-
-    with_measures adds revenue sums and turnaround bucket counts, which are per-approval figures —
-    only pass it for the ticket-level cube, never the de-duplicated client one."""
-    cells = {}
-    for r in rows:
-        key = tuple(r[d] for d in DIMS)
-        c = cells.get(key)
+    for t in sorted(tickets, key=lambda r: (r["mk"], r["date"], r["ticket"])):
+        c = by.get(t["key"])
         if c is None:
-            c = cells[key] = {"n": 0}
-            if with_measures:
-                c["rev"] = {k: 0.0 for k, _ in PRODUCTS}
-                c["tat"] = {name: {"d": 0, "neg": 0, "negOld": 0, "negEarly": 0,
-                                   "miss": 0, "b": [0] * len(TAT_BUCKETS)}
-                            for name, _ in TAT_FIELDS}
-        c["n"] += 1
-        if with_measures:
+            c = by[t["key"]] = {
+                "key": t["key"], "email": t["email"], "name": t["name"],
+                "mk": t["mk"], "m": t["m"], "q": t["q"],
+                "inPA": False, "subjects": set(), "tier": "", "tenure": "",
+                "rev": {k: 0.0 for k, _ in PRODUCTS},
+                "nTickets": 0, "nPA": 0, "nFY": 0,
+                "advisor": "", "appr": "", "ticket": "",
+                "status": t["status"], "matched": t["matched"], "rm": t["rm"], "team": t["team"],
+                "platform": t["platform"], "src": t["src"], "b2cCategory": t["b2cCategory"],
+                "created": t["created"], "converted": t["converted"],
+                "date": t["date"],
+            }
+        c["nTickets"] += 1
+        if t["kind"] == "pa":
+            c["inPA"] = True
+            c["nPA"] += 1
             for k, _ in PRODUCTS:
-                c["rev"][k] += r["rev"].get(k, 0.0)
-            for name, field in TAT_FIELDS:
-                universe = TAT_UNIVERSE[name]
-                if universe and r["status"] != universe:
-                    continue          # out of scope for this measure — not missing, just not asked
-                v, t = r[field], c["tat"][name]
-                if v is None:
-                    t["miss"] += 1
-                elif v < 0:
-                    # Event predates its baseline, so it is held out of the denominator rather than
-                    # counted as a zero-day turnaround. For convert/in-process it is also split by
-                    # whether the lead pre-dated the plan (see TAT_SPLIT_NEGATIVES).
-                    t["neg"] += 1
-                    if name in TAT_SPLIT_NEGATIVES:
-                        gap = r["convertPreDraftDays"]
-                        if gap is None:
-                            # converted after drafting but before approval — still ahead of the
-                            # plan being signed off, so it belongs with the flagged group
-                            t["negEarly"] += 1
-                        elif gap > TAT_OLD_CLIENT_DAYS:
-                            t["negOld"] += 1
-                        else:
-                            t["negEarly"] += 1
-                else:
-                    t["d"] += 1
-                    for i, b in enumerate(TAT_BUCKETS):
-                        if v > b:
-                            t["b"][i] += 1
+                c["rev"][k] += t["rev"].get(k, 0.0)
+            # Plan-Approval fields win for the client-level record: they are the richer source.
+            if t["advisor"]:
+                c["advisor"] = t["advisor"]
+            if t["appr"]:
+                c["appr"] = t["appr"]
+            if t["ticket"]:
+                c["ticket"] = t["ticket"]
+        else:
+            c["nFY"] += 1
+            if t["subject"]:
+                c["subjects"].add(t["subject"])
+        if t["tierRaw"] and not c["tier"]:
+            c["tier"] = t["tierRaw"]
+        if t["tenureRaw"] and not c["tenure"]:
+            c["tenure"] = t["tenureRaw"]
+        if not c["advisor"] and t["advisor"]:
+            c["advisor"] = t["advisor"]
+        if not c["name"] and t["name"]:
+            c["name"] = t["name"]
 
     out = []
-    for key, c in cells.items():
-        cell = dict(zip(DIMS, key))
-        cell["n"] = c["n"]
-        if with_measures:
-            cell["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
-            cell["tat"] = c["tat"]
-        out.append(cell)
+    for c in by.values():
+        subs = sorted(c["subjects"])
+        c["subjects"] = subs
+        # One value per client, so the master filter can be applied to an aggregated cell without
+        # a client ever being counted under two different subjects.
+        c["subjKey"] = "|".join(subs)
+        c["tier"] = c["tier"] or BLANK
+        c["tenure"] = c["tenure"] or BLANK
+        c["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
+        out.append(c)
+    out.sort(key=lambda r: (r["mk"], r["name"].lower()))
     return out
 
 
@@ -497,27 +592,42 @@ def main():
     lead = load_lead_master(b2c_path)
     print(f"  {len(lead):,} leads loaded")
 
-    print("Reading plan approval tabs (Q1 + Q2)...")
-    rows = load_plan_rows(plan_path, lead, team_map)
-    rows.sort(key=lambda r: (r["mk"], r["date"], r["ticket"]))
-    clients = dedupe_clients(rows)
-    matched = sum(1 for r in clients if r["matched"])
-    print(f"  {len(rows)} plan-approval rows -> {len(clients)} unique clients ({matched} matched to lead data)")
+    print("Reading all four data sheets (Plan Approval Q1/Q2 + FY Q1/Q2)...")
+    tickets, clients, diag = load_all_rows(plan_path, lead, team_map)
+    pa_tickets = [t for t in tickets if t["kind"] == "pa"]
+    for sheet, n in diag["per_sheet"].items():
+        print(f"    {sheet:<26} {n:>5} usable rows")
+    if diag["missing_sheets"]:
+        print(f"  WARNING: sheet(s) not found in the workbook: {diag['missing_sheets']}")
+    print(f"  excluded {diag['excluded_month']} rows from {'/'.join(sorted(EXCLUDE_MONTHS)).title()} (by request)")
+    print(f"  skipped  {diag['no_email']} rows that carry a client name but no email "
+          f"(cannot be joined to lead data or de-duplicated)")
+    if diag["bad_dates"]:
+        print(f"  {diag['bad_dates']} rows had a date outside FY 2026-27 (typo years such as "
+              f"11.06.2926) - bucketed by their Month column instead")
 
-    # Diagnostics for the newly-joined dimensions, so a silently-empty section is obvious here
-    # rather than only being noticed as a blank card on the dashboard.
-    unresolved = sorted({r["rm"] for r in clients if r["matched"] and r["team"] == "Unassigned"})
-    print(f"  teams: {len(set(r['team'] for r in clients))} distinct; "
-          f"{sum(1 for r in clients if r['team'] not in ('Unassigned', 'No lead record'))} clients mapped to a team")
+    matched = sum(1 for c in clients if c["matched"])
+    in_pa = sum(1 for c in clients if c["inPA"])
+    fy_only = len(clients) - in_pa
+    print(f"  {len(tickets)} rows -> {len(clients)} unique clients in the de-duplicated union")
+    print(f"    {in_pa} appear on a Plan Approval sheet (always counted)")
+    print(f"    {fy_only} come only from the FY sheets (counted subject to the Ticket Subject filter)")
+    print(f"    {matched} matched to lead data, {len(clients) - matched} unmapped")
+
+    unresolved = sorted({c["rm"] for c in clients if c["matched"] and c["team"] == "Unassigned"})
+    print(f"  teams: {len(set(c['team'] for c in clients))} distinct; "
+          f"{sum(1 for c in clients if c['team'] not in ('Unassigned', 'No lead record'))} clients mapped to a team")
     if unresolved:
         print(f"  WARNING: {len(unresolved)} RM name(s) in b2c have no row in the employee reference sheet:")
         for n in unresolved[:10]:
             print(f"    - {n}")
         if len(unresolved) > 10:
             print(f"    ... and {len(unresolved) - 10} more")
+
+    # Turnaround is measured on plan approvals only - the FY sheets carry no approval date.
     for name, field in TAT_FIELDS:
         universe = TAT_UNIVERSE[name]
-        scope = [r for r in rows if not universe or r["status"] == universe]
+        scope = [r for r in pa_tickets if not universe or r["status"] == universe]
         have = [r for r in scope if r[field] is not None]
         usable = [r for r in have if r[field] >= 0]
         who = f"status={universe}" if universe else "all plans"
@@ -533,14 +643,20 @@ def main():
         elif neg:
             line += f"; {len(neg)} before the plan was raised (reported as one neutral row)"
         print(line)
-    ctypes = {}
-    for r in clients:
-        ctypes[r["clientType"] or "(blank)"] = ctypes.get(r["clientType"] or "(blank)", 0) + 1
-    print(f"  Client Type (planning sheet): {ctypes}")
-    b2ccat = {}
-    for r in clients:
-        b2ccat[r["b2cCategory"] or "(blank)"] = b2ccat.get(r["b2cCategory"] or "(blank)", 0) + 1
-    print(f"  clientCategory (b2c):        {b2ccat}")
+
+    tiers, tenures, subjects = {}, {}, {}
+    for c in clients:
+        tiers[c["tier"]] = tiers.get(c["tier"], 0) + 1
+        tenures[c["tenure"]] = tenures.get(c["tenure"], 0) + 1
+        for sub in c["subjects"]:
+            subjects[sub] = subjects.get(sub, 0) + 1
+    print(f"  Client Tier   (FY sheets):        {tiers}")
+    print(f"  Client Tenure (Plan Approval):    {tenures}")
+    print(f"  Ticket Subject values: {len(subjects)} distinct")
+    for k, v in sorted(subjects.items(), key=lambda kv: -kv[1]):
+        print(f"    {v:>5}  {k}")
+
+    all_subjects = sorted({sub for c in clients for sub in c["subjects"]})
 
     meta = {
         "generated": datetime.datetime.now().strftime("%d %b %Y, %I:%M %p"),
@@ -548,51 +664,61 @@ def main():
         "leadFile": b2c_path.name,
         "empFile": emp_path.name if emp_path else "",
         "leadRows": len(lead),
-        "tabs": ["Plan Approval Sheet Q1", "Plan Approval Sheet Q2"],
+        "tabs": [c["name"] for c in SHEETS],
+        "excludedMonths": sorted(m.title() for m in EXCLUDE_MONTHS),
+        "noEmailRows": diag["no_email"],
+        "products": [{"k": k, "label": label} for k, label in PRODUCTS],
+        "subjects": all_subjects,
+        "blankLabel": BLANK,
+        "tatBuckets": TAT_BUCKETS,
+        "tatUniverse": TAT_UNIVERSE,
+        "tatSplit": sorted(TAT_SPLIT_NEGATIVES),
+        "tatEarlyLabel": TAT_EARLY_LABEL,
+        "tatNeutralNegLabel": TAT_NEUTRAL_NEG_LABEL,
+        "tatOldClientDays": TAT_OLD_CLIENT_DAYS,
     }
 
     # ---- full detail (local only) ----
-    meta = dict(meta,
-                products=[{"k": k, "label": label} for k, label in PRODUCTS],
-                tatUniverse=TAT_UNIVERSE,
-                tatSplit=sorted(TAT_SPLIT_NEGATIVES),
-                tatEarlyLabel=TAT_EARLY_LABEL,
-                tatNeutralNegLabel=TAT_NEUTRAL_NEG_LABEL,
-                tatOldClientDays=TAT_OLD_CLIENT_DAYS)
-    full_payload = {"meta": meta, "rows": rows}
-    full_html = embed(TEMPLATES / "full_dashboard.template.html", full_payload)
+    # Both pages render from ONE template. The only difference is the payload: the local build
+    # carries names/emails, the published one has them stripped. Keeping a single template is what
+    # stops the two pages drifting apart - divergence between them has already caused real bugs.
+    unmapped_list = [
+        {"mk": c["mk"], "m": c["m"], "date": c["date"], "ticket": c["ticket"],
+         "tier": c["tier"], "tenure": c["tenure"], "name": c["name"], "email": c["email"],
+         "advisor": c["advisor"], "subjects": ", ".join(c["subjects"])}
+        for c in clients if not c["matched"]
+    ]
+    full_payload = {"meta": dict(meta, hasPII=True), "clients": clients,
+                    "tickets": pa_tickets, "unmapped": unmapped_list}
+    full_html = embed(TEMPLATES / "dashboard.template.html", full_payload)
     (ROOT / "plan-approval-lead-status.html").write_text(full_html, encoding="utf-8")
     print("Wrote plan-approval-lead-status.html (full detail, local only)")
 
-    # ---- public aggregate (pushed to GitHub) ----
-    months = sorted({(r["mk"], r["m"]) for r in rows})
+    # ---- published build ----
+    # De-identified: no client name, email or ticket id on any analysable record. The unmapped
+    # list below is the one deliberate exception - see the note there.
+    STRIP = ("name", "email", "ticket", "key")
+
+    def deid(rec):
+        return {k: v for k, v in rec.items() if k not in STRIP}
+
     public_payload = {
-        "meta": dict(meta, tatBuckets=TAT_BUCKETS),
-        "months": [{"mk": mk, "m": m} for mk, m in months],
-        "advisors": sorted({r["advisor"] for r in rows if r["advisor"]}),
-        "sources": sorted({r["src"] for r in rows if r["src"]}),
-        "teams": sorted({r["team"] for r in rows if r["team"]}),
-        "platforms": sorted({r["platform"] for r in rows if r["platform"]}),
-        "cube": {"tickets": build_cube(rows, with_measures=True), "clients": build_cube(clients)},
-        # DELIBERATE EXCEPTION: this is the only client-identifying data on the published page.
-        # It exists so the unmapped list can be chased down, and it is only acceptable because the
-        # repository is private. If the repo is ever made public again, remove this key — and note
+        "meta": dict(meta, hasPII=False),
+        "clients": [deid(c) for c in clients],
+        "tickets": [deid(t) for t in pa_tickets],
+        # DELIBERATE EXCEPTION: the only client-identifying data on the published page. It exists
+        # so the unmapped list can actually be chased down, and it is only acceptable because the
+        # repository is private. If the repo is ever made public again, remove this key - and note
         # that anything already pushed stays in git history.
-        "unmapped": [
-            {"mk": r["mk"], "m": r["m"], "date": r["date"], "ticket": r["ticket"],
-             "clientType": r["clientType"], "name": r["name"], "email": r["email"],
-             "advisor": r["advisor"], "appr": r["appr"]}
-            for r in sorted(clients, key=lambda x: (x["mk"], x["date"], x["ticket"]))
-            if not r["matched"]
-        ],
+        "unmapped": unmapped_list,
     }
-    public_html = embed(TEMPLATES / "public_dashboard.template.html", public_payload,
-                        pii_scan_keys=["cube", "advisors", "sources", "teams", "platforms"])
+    public_html = embed(TEMPLATES / "dashboard.template.html", public_payload,
+                        pii_scan_keys=["clients", "tickets"])
     (ROOT / "index.html").write_text(public_html, encoding="utf-8")
     n_unmapped = len(public_payload["unmapped"])
-    print(f"Wrote index.html (aggregates + {n_unmapped} unmapped clients WITH names/emails)")
+    print(f"Wrote index.html (de-identified + {n_unmapped} unmapped clients WITH names/emails)")
     if n_unmapped:
-        print(f"  NOTE: index.html now carries {n_unmapped} client names and email addresses.")
+        print(f"  NOTE: index.html carries {n_unmapped} client names and email addresses.")
         print("        Only publish it from a PRIVATE repository.")
 
     return 0

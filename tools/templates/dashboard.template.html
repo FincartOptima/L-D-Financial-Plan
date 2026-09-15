@@ -566,7 +566,7 @@
     <section class="card hm" id="sec-month">
       <p class="eyebrow">04 — Over time</p>
       <h2>Month-wise lead status split</h2>
-      <p class="cap">Months across the top, lead status down the side. A client is counted in the month they first appear in any sheet.</p>
+      <p class="cap">Months across the top, lead status down the side. A client is counted in every month they have a row in any sheet — someone active across several months appears in each, so a row's cells can add up to more than its own Total.</p>
       <div class="tscroll"><table id="monthMatrix"></table></div>
     </section>
 
@@ -724,8 +724,11 @@
   const sInfo = k => SMAP[k] || { k, label: k, c: 'var(--s-other)', tex: 0 };
   const ANALYZE_STATUS = STATUS.filter(s => s.k !== 'NOT IN LEAD DATA');
 
-  const MONTHS = [...new Set(CLIENTS.map(c => c.mk))].sort()
-    .map(mk => ({ mk, m: CLIENTS.find(c => c.mk === mk).m }));
+  // Every month that appears on ANY client's ticket, not just months that happen to be someone's
+  // earliest — a client active only in a later month must still get a column/option for it.
+  const MONTH_LABELS = META.monthLabels || {};
+  const MONTHS = [...new Set(CLIENTS.flatMap(c => c.months || [c.mk]))].sort()
+    .map(mk => ({ mk, m: MONTH_LABELS[mk] || mk }));
   const SUBJECTS = META.subjects || [];
   const FP_SUBJECTS = SUBJECTS.filter(s => /^FP |^FP$|Review\/Revise FP/i.test(s));
 
@@ -786,8 +789,11 @@
   // per client as a set, so a client with two subjects is still only ever counted once.
   const inSubjectScope = c => c.inPA || c.subjects.some(s => state.subjects.has(s));
 
+  // Shared by both client rows (carry the full "months" set they're active in) and ticket rows
+  // (carry only a single "mk" — one row is one date, so it can't span months). A client passes a
+  // month filter if they have ANY activity that month; a ticket passes if it IS that month.
   function passesFilters(r) {
-    return (!state.month || r.mk === state.month) &&
+    return (!state.month || (r.months ? r.months.includes(state.month) : r.mk === state.month)) &&
            (!state.tier || r.tier === state.tier) &&
            (!state.tenure || r.tenure === state.tenure) &&
            (!state.team || r.team === state.team) &&
@@ -939,22 +945,27 @@
       '<td class="num">' + total + '</td></tr></tbody>';
 
     // ----- 04 month x status -----
+    // A client is counted in EVERY month they have a row in any sheet, so someone active across
+    // several months appears in each of those columns. That means a status row's cells can sum
+    // to more than its own "Total" (which stays the distinct client count, matching the status
+    // chart above) — the overlap is real, not a double-count bug; see the cap text.
     const months = MONTHS.filter(m => !state.month || m.mk === state.month);
     $('monthMatrix').innerHTML =
       '<thead><tr><th>Lead status</th>' + months.map(m => '<th class="num">' + esc(m.m) + '</th>').join('') +
       '<th class="num">Total</th></tr></thead><tbody>' +
       present.map(s => {
-        const cells = months.map(m => rows.filter(r => r.status === s.k && r.mk === m.mk).length);
+        const cells = months.map(m => rows.filter(r => r.status === s.k && r.months.includes(m.mk)).length);
+        const distinct = rows.filter(r => r.status === s.k).length;
         return '<tr><th class="rowhead">' + esc(s.label) + '</th>' +
           cells.map((n, i) => '<td class="cell" data-zero="' + (n === 0 ? 1 : 0) + '" title="' +
             esc(s.label) + ' · ' + esc(months[i].m) + ': ' + n + '">' + (n || '–') + '</td>').join('') +
-          '<td class="num">' + cells.reduce((a, b) => a + b, 0) + '</td></tr>';
+          '<td class="num">' + distinct + '</td></tr>';
       }).join('') +
       '<tr class="totrow"><td>All statuses</td>' +
-      months.map(m => '<td class="num">' + rows.filter(r => r.mk === m.mk).length + '</td>').join('') +
+      months.map(m => '<td class="num">' + rows.filter(r => r.months.includes(m.mk)).length + '</td>').join('') +
       '<td class="num">' + total + '</td></tr>' +
       (unmappedSel.length ? '<tr><td class="muted-col">Not matched</td>' +
-        months.map(m => '<td class="num muted-col">' + (unmappedSel.filter(r => r.mk === m.mk).length || '–') + '</td>').join('') +
+        months.map(m => '<td class="num muted-col">' + (unmappedSel.filter(r => r.months.includes(m.mk)).length || '–') + '</td>').join('') +
         '<td class="num muted-col">' + unmappedSel.length + '</td></tr>' : '') + '</tbody>';
 
     // ----- 05 subjects -----
@@ -1144,8 +1155,9 @@
     }
 
     // ----- unmapped tab -----
+    // Same "any month they have a row in" rule as everywhere else — see passesFilters().
     const unmappedAll = (DATA.unmapped || []).filter(r =>
-      (!state.month || r.mk === state.month) && (!state.tier || r.tier === state.tier) &&
+      (!state.month || r.months.includes(state.month)) && (!state.tier || r.tier === state.tier) &&
       (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor));
     $('unmappedBadge').textContent = nf(unmappedAll.length);
     $('unmappedCap').innerHTML = 'Showing <b>' + nf(unmappedAll.length) + '</b> client' +
@@ -1324,7 +1336,7 @@
   });
   $('unmappedCsvBtn').addEventListener('click', () => {
     const rows = (DATA.unmapped || []).filter(r =>
-      (!state.month || r.mk === state.month) && (!state.tier || r.tier === state.tier) &&
+      (!state.month || r.months.includes(state.month)) && (!state.tier || r.tier === state.tier) &&
       (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor));
     const cols = ['date', 'ticket', 'tier', 'tenure', 'name', 'email', 'advisor', 'subjects', 'locations'];
     const head = ['Date', 'Ticket ID', 'Tier', 'Tenure', 'Client Name', 'Client Mail ID', 'Advisor', 'Ticket Subjects', 'Sheet / Row'];

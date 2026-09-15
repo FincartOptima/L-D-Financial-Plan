@@ -516,9 +516,17 @@ def load_all_rows(path, lead, team_map):
 def build_clients(tickets):
     """Collapses the ticket records into one row per email — the de-duplicated union.
 
-    A client's month is the EARLIEST they appear across every sheet (when they entered the
-    pipeline), so each client lands in exactly one month and the month-wise table still totals to
-    the client count. Revenue sums across all of that client's plan approvals.
+    "mk"/"m" are the client's EARLIEST month across every sheet (when they first entered the
+    pipeline) — kept purely as a descriptive, all-time attribute, the same way tier/tenure/team
+    are: something the client HAS, shown once per client row regardless of which month is being
+    looked at.
+
+    "months" is a different thing: the full set of months this client has a row in, across every
+    sheet. This is what month FILTERING must use. A client with tickets in both June and July is
+    active in both — filtering to July has to surface them there too, not only under June just
+    because June happened first. Using "mk" for filtering was the bug behind a manual July
+    recount not matching the dashboard: the client's july activity was real, but the dashboard
+    had already filed them under an earlier month and had no way to also show them in July.
     """
     by = {}
     for t in sorted(tickets, key=lambda r: (r["mk"], r["date"], r["ticket"])):
@@ -526,7 +534,7 @@ def build_clients(tickets):
         if c is None:
             c = by[t["key"]] = {
                 "key": t["key"], "email": t["email"], "name": t["name"],
-                "mk": t["mk"], "m": t["m"], "q": t["q"],
+                "mk": t["mk"], "m": t["m"], "q": t["q"], "months": set(),
                 "inPA": False, "subjects": set(), "tier": "", "tenure": "",
                 "rev": {k: 0.0 for k, _ in PRODUCTS},
                 "nTickets": 0, "nPA": 0, "nFY": 0,
@@ -537,6 +545,7 @@ def build_clients(tickets):
                 "date": t["date"], "locations": [],
             }
         c["nTickets"] += 1
+        c["months"].add(t["mk"])
         # Every source row this client came from, so a client that needs fixing (no lead record,
         # say) can be found in the sheet rather than just named.
         c["locations"].append(f"{t['sheet']} row {t['row']}")
@@ -575,6 +584,7 @@ def build_clients(tickets):
         c["tier"] = c["tier"] or BLANK
         c["tenure"] = c["tenure"] or BLANK
         c["locations"] = "; ".join(c["locations"])
+        c["months"] = sorted(c["months"])
         c["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
         out.append(c)
     out.sort(key=lambda r: (r["mk"], r["name"].lower()))
@@ -715,6 +725,12 @@ def main():
         print(f"    {v:>5}  {k}")
 
     all_subjects = sorted({sub for c in clients for sub in c["subjects"]})
+    # mk -> display label (e.g. "2026-07" -> "Jul 2026"), covering every month that appears on any
+    # ticket in any sheet - not just months that happen to be someone's earliest. The dashboard
+    # derives its month list from clients' full "months" sets, so it needs a label for each of
+    # those, not only for the subset that would show up as a "mk" value under the old one-month
+    # rule.
+    month_labels = {t["mk"]: t["m"] for t in tickets}
 
     meta = {
         "generated": datetime.datetime.now().strftime("%d %b %Y, %I:%M %p"),
@@ -727,6 +743,7 @@ def main():
         "noEmailRows": diag["no_email"],
         "products": [{"k": k, "label": label} for k, label in PRODUCTS],
         "subjects": all_subjects,
+        "monthLabels": month_labels,
         "blankLabel": BLANK,
         "tatBuckets": TAT_BUCKETS,
         "tatUniverse": TAT_UNIVERSE,
@@ -741,7 +758,7 @@ def main():
     # carries names/emails, the published one has them stripped. Keeping a single template is what
     # stops the two pages drifting apart - divergence between them has already caused real bugs.
     unmapped_list = [
-        {"mk": c["mk"], "m": c["m"], "date": c["date"], "ticket": c["ticket"],
+        {"mk": c["mk"], "m": c["m"], "months": c["months"], "date": c["date"], "ticket": c["ticket"],
          "tier": c["tier"], "tenure": c["tenure"], "name": c["name"], "email": c["email"],
          "advisor": c["advisor"], "subjects": ", ".join(c["subjects"]), "locations": c["locations"]}
         for c in clients if not c["matched"]

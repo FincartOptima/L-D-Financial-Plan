@@ -11,8 +11,7 @@ grew inconsistent bugs.
 
 The client universe is the de-duplicated union of all four data sheets, keyed on client email:
 
-  - Plan Approval Sheet Q1 / Q2   the approval base, and the only source of revenue and of the
-                                  dates the turnaround measures need. Always counted.
+  - Plan Approval Sheet Q1 / Q2   the approval base, and the only source of revenue. Always counted.
   - FY 2026-2027 Q1 / Q2          every planning ticket. Each carries a Ticket Subject, and the
                                   dashboard's master filter decides which subjects get added on
                                   top of the approval base.
@@ -42,7 +41,7 @@ PLAN_RE = re.compile(r"^Financial Planning Tickets Summary-Dashboard.*\.xlsx$", 
 EMP_RE = re.compile(r"^EMPLOYEE_REF.*\.xlsx$", re.IGNORECASE)
 
 # The workbook's four data sheets, read into one de-duplicated client universe keyed on email.
-#   kind "pa" - Plan Approval sheets: carry revenue and the dates the turnaround measures need.
+#   kind "pa" - Plan Approval sheets: carry revenue and the approval date.
 #   kind "fy" - FY ticket sheets:     carry Ticket Subject, which drives the master filter.
 # Column names differ between sheets (Email Id vs Client Mail ID) and even between quarters of the
 # same kind, so every field is looked up by header name per sheet, never by position.
@@ -123,42 +122,6 @@ EMAIL_ALIASES = {
     "inayakpatilvp111@gmail.com": "vinayakpatilvp111@gmail.com",   # dropped leading "v"
 }
 
-# Turnaround bands, in days. Cumulative: each counts plans taking strictly more than that many days.
-TAT_BUCKETS = [1, 2, 3, 5, 7, 10, 15, 30]
-TAT_FIELDS = [("approve", "tatApprove"), ("convert", "tatConvert"), ("inprocess", "tatInProcess")]
-
-# Each measure is scoped to the clients who actually reached that stage, so the denominator is the
-# population that could have produced the outcome. Without this, every non-converted client counts
-# as "missing a date" against the conversion measure and drags its percentages down.
-TAT_UNIVERSE = {
-    "approve": None,              # every approved plan has a raised and an approved date
-    "convert": "CONVERTED",
-    "inprocess": "IN PROCESS",
-}
-
-# A conversion dated before the plan was raised is either a client who converted in an earlier
-# cycle and came back for a plan, or a conversion logged around the time of drafting but ahead of
-# it — the wrong order procedurally. The two are separated by how far back the conversion sits:
-# in this data the long tail runs to years (median 214 days) while the suspect cases cluster
-# within days of the plan.
-#
-# The lead's createdDate cannot make this distinction: a lead is always created before a plan is
-# drafted for it, so that test classifies every negative as an old client and never fires.
-TAT_OLD_CLIENT_DAYS = 30
-TAT_SPLIT_NEGATIVES = {"convert"}
-TAT_EARLY_LABEL = {
-    "convert": "Client Converted Before Drafting Financial Plan",
-}
-# In-process legitimately precedes drafting — the RM works the lead, then a plan is written — so
-# those negatives are reported as one neutral row rather than being judged.
-TAT_NEUTRAL_NEG_LABEL = {
-    "inprocess": "Reached in-process before the plan was raised",
-    # An approval dated before the plan was raised cannot happen in reality — it is a data entry
-    # slip in the sheet, so it is surfaced rather than quietly dropped.
-    "approve": "Approval Date precedes Date — check the sheet",
-}
-
-
 def scrub(value):
     return "" if value and LOOKS_LIKE_PII_RE.search(value) else value
 
@@ -238,13 +201,6 @@ def date_issue(raw, parsed):
     return None
 
 
-def day_gap(later, earlier):
-    """Whole days between two dates, or None if either side is missing."""
-    if later is None or earlier is None:
-        return None
-    return (later - earlier).days
-
-
 def load_team_map(path):
     """Employee reference sheet -> {normalized RM name: team}. Used to roll b2c leads up to a team."""
     if path is None:
@@ -308,9 +264,6 @@ def load_lead_master(path):
                 "platform": s(r[idx["platformName"]]),
                 "category": s(r[idx["categoryName"]]),
                 "isClient": s(r[idx["isClient"]]),
-                "convertedDt": parse_date(r[idx["convertedDate"]]),
-                "inProcessDt": parse_date(r[idx["leadInProcessDate"]]),
-                "createdDt": parse_date(r[idx["createdDate"]]),
                 "clientCategory": s(r[idx["clientCategory"]]),
             }
         return lead
@@ -323,7 +276,7 @@ def load_all_rows(path, lead, team_map):
 
     Returns (tickets, clients, diag):
       tickets - one record per source row that carries an email. Plan-Approval tickets additionally
-                carry revenue and the turnaround measures; FY tickets carry a Ticket Subject.
+                carry revenue; FY tickets carry a Ticket Subject.
       clients - one record per distinct email, unioned across every sheet.
       diag    - counts for the build log, so rows dropped here are reported rather than vanishing.
 
@@ -423,7 +376,7 @@ def load_all_rows(path, lead, team_map):
                 # The typed date is not trustworthy on its own: the FY sheets contain finger-slips
                 # like 11.06.2926 and 04.07.2027 whose Month column still reads correctly. So the
                 # month name drives the bucket, and a date outside the financial year is discarded
-                # rather than allowed to invent a month (or a nonsense turnaround).
+                # rather than allowed to invent a month.
                 if row_dt and not (FY_START <= row_dt <= FY_END):
                     row_dt = None
 
@@ -468,27 +421,18 @@ def load_all_rows(path, lead, team_map):
                 }
 
                 if cfg["kind"] == "pa":
-                    raised_dt = row_dt
                     # Already checked and, if bad, recorded above (record_date_issue) - just apply
                     # the same "out of range means unusable" rule the primary date got.
                     approved_dt = gdate(r, "Approval Date")
                     if approved_dt and not (FY_START <= approved_dt <= FY_END):
                         approved_dt = None
-                    converted_dt = lead_rec["convertedDt"] if lead_rec else None
                     rec.update({
                         "appdate": s(approved_dt) if approved_dt else "",
                         "verdict": g(r, "Approved/Rejected"),
                         "rev": {k: gnum(r, header) for k, header in PRODUCTS},
-                        "convertPreDraftDays": ((raised_dt - converted_dt).days
-                                                if converted_dt and raised_dt and converted_dt < raised_dt else None),
-                        "tatApprove": day_gap(approved_dt, raised_dt),
-                        "tatConvert": day_gap(converted_dt, approved_dt),
-                        "tatInProcess": day_gap(lead_rec["inProcessDt"] if lead_rec else None, raised_dt),
                     })
                 else:
-                    rec.update({"appdate": "", "verdict": "", "rev": {k: 0.0 for k, _ in PRODUCTS},
-                                "convertPreDraftDays": None,
-                                "tatApprove": None, "tatConvert": None, "tatInProcess": None})
+                    rec.update({"appdate": "", "verdict": "", "rev": {k: 0.0 for k, _ in PRODUCTS}})
 
                 tickets.append(rec)
                 kept += 1
@@ -497,8 +441,8 @@ def load_all_rows(path, lead, team_map):
 
         clients = build_clients(tickets)
         # Stamp each ticket with its client's resolved tier / tenure / subject-set so the
-        # ticket-level cube (revenue, turnaround) can be sliced by exactly the same dimensions and
-        # the same master filter as the client-level one.
+        # ticket-level revenue view can be sliced by exactly the same dimensions and the same
+        # master filter as the client-level one.
         by_key = {c["key"]: c for c in clients}
         for t in tickets:
             c = by_key.get(t["key"])
@@ -592,10 +536,10 @@ def build_clients(tickets):
 
 
 def collect_strings(node, out):
-    """Every string value reachable in the payload, ignoring numbers. Measures (revenue sums,
-    turnaround counts) are numeric by construction, and a revenue figure like 2000000 would
-    otherwise trip the phone-number heuristic. Anything genuinely identifying — an email, or a
-    phone pasted into a text column — arrives as a string and is still caught."""
+    """Every string value reachable in the payload, ignoring numbers. Revenue sums are numeric by
+    construction, and a figure like 2000000 would otherwise trip the phone-number heuristic.
+    Anything genuinely identifying — an email, or a phone pasted into a text column — arrives as
+    a string and is still caught."""
     if isinstance(node, str):
         out.append(node)
     elif isinstance(node, dict):
@@ -692,26 +636,6 @@ def main():
         if len(unresolved) > 10:
             print(f"    ... and {len(unresolved) - 10} more")
 
-    # Turnaround is measured on plan approvals only - the FY sheets carry no approval date.
-    for name, field in TAT_FIELDS:
-        universe = TAT_UNIVERSE[name]
-        scope = [r for r in pa_tickets if not universe or r["status"] == universe]
-        have = [r for r in scope if r[field] is not None]
-        usable = [r for r in have if r[field] >= 0]
-        who = f"status={universe}" if universe else "all plans"
-        line = (f"  TAT days-to-{name}: universe {len(scope)} ({who}); "
-                f"{len(have)} have both dates; {len(usable)} usable (>=0)")
-        neg = [r for r in have if r[field] < 0]
-        if name in TAT_SPLIT_NEGATIVES:
-            old = sum(1 for r in neg
-                      if r["convertPreDraftDays"] is not None
-                      and r["convertPreDraftDays"] > TAT_OLD_CLIENT_DAYS)
-            line += (f"; {len(neg)} negative -> {old} old clients (>{TAT_OLD_CLIENT_DAYS}d before "
-                     f"drafting), {len(neg) - old} logged before drafting")
-        elif neg:
-            line += f"; {len(neg)} before the plan was raised (reported as one neutral row)"
-        print(line)
-
     tiers, tenures, subjects = {}, {}, {}
     for c in clients:
         tiers[c["tier"]] = tiers.get(c["tier"], 0) + 1
@@ -745,12 +669,6 @@ def main():
         "subjects": all_subjects,
         "monthLabels": month_labels,
         "blankLabel": BLANK,
-        "tatBuckets": TAT_BUCKETS,
-        "tatUniverse": TAT_UNIVERSE,
-        "tatSplit": sorted(TAT_SPLIT_NEGATIVES),
-        "tatEarlyLabel": TAT_EARLY_LABEL,
-        "tatNeutralNegLabel": TAT_NEUTRAL_NEG_LABEL,
-        "tatOldClientDays": TAT_OLD_CLIENT_DAYS,
     }
 
     # ---- full detail (local only) ----

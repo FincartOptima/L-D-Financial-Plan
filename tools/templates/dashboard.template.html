@@ -622,28 +622,8 @@
       <div class="tscroll"><table id="revTbl"></table></div>
     </section>
 
-    <section class="card" id="sec-tat">
-      <div class="cardhead">
-        <div class="grow">
-          <p class="eyebrow">10 — Turnaround</p>
-          <h2>Turnaround time</h2>
-          <p class="cap" id="tatCap"></p>
-        </div>
-        <div class="fgroup">
-          <span class="flabel">Measure</span>
-          <select id="fTat">
-            <option value="approve">1 — Days taken to approve plans</option>
-            <option value="convert">2 — Days taken to convert clients</option>
-            <option value="inprocess">3 — Days taken to reach in-process</option>
-          </select>
-        </div>
-      </div>
-      <div id="tatWarn"></div>
-      <div class="tscroll" style="max-width:560px"><table id="tatTbl"></table></div>
-    </section>
-
     <section class="card" id="sec-list" hidden>
-      <p class="eyebrow">11 — Detail</p>
+      <p class="eyebrow">10 — Detail</p>
       <h2>Client list</h2>
       <p class="cap" id="listCap"></p>
       <div class="tblwrap"><table id="clientTbl"></table></div>
@@ -742,28 +722,10 @@
   const TIERS = orderedValues('tier', TIER_ORDER);
   const TENURES = orderedValues('tenure', ['New', 'Existing']);
 
-  const TAT_FIELD = { approve: 'tatApprove', convert: 'tatConvert', inprocess: 'tatInProcess' };
-  const TAT_UNIVERSE = META.tatUniverse || { approve: null, convert: 'CONVERTED', inprocess: 'IN PROCESS' };
-  const TAT_BUCKETS = META.tatBuckets || [1, 2, 3, 5, 7, 10, 15, 30];
-  const TAT_SPLIT = META.tatSplit || ['convert'];
-  const TAT_EARLY_LABEL = META.tatEarlyLabel || {};
-  const TAT_NEUTRAL_NEG_LABEL = META.tatNeutralNegLabel || {};
-  const TAT_OLD_DAYS = META.tatOldClientDays == null ? 30 : META.tatOldClientDays;
-  const TAT_LABEL = {
-    approve: 'days from <b>Date</b> to <b>Approval Date</b> on the plan approval sheets',
-    convert: 'days from <b>Approval Date</b> to <b>convertedDate</b> in the lead data',
-    inprocess: 'days from <b>Date</b> to <b>leadInProcessDate</b> in the lead data'
-  };
-  const TAT_SCOPE_NOTE = {
-    approve: 'every plan approval in the current selection',
-    convert: 'clients whose lead status is <b>Converted</b>',
-    inprocess: 'clients whose lead status is <b>In process</b>'
-  };
-
   const state = {
     subjects: new Set(SUBJECTS),
     month: '', tier: '', tenure: '', team: '', platform: '', advisor: '', source: '', q: '',
-    off: new Set(), product: 'all', tat: 'approve', sort: { key: 'mk', dir: 1 }
+    off: new Set(), product: 'all', sort: { key: 'mk', dir: 1 }
   };
 
   const $ = id => document.getElementById(id);
@@ -810,8 +772,8 @@
   const selected = () => CLIENTS.filter(c => inSubjectScope(c) && passesFilters(c) && searchOk(c));
   const statusVisible = r => !r.matched || !state.off.has(r.status);
 
-  // Plan-approval tickets for the revenue and turnaround sections, scoped to the clients that
-  // survive the current filters.
+  // Plan-approval tickets for the revenue section, scoped to the clients that survive the
+  // current filters.
   function selectedTickets() {
     const keys = new Set(selected().filter(statusVisible).map(c => c.key));
     return TICKETS.filter(t => keys.has(t.key) && passesFilters(t));
@@ -1080,51 +1042,7 @@
           '<td class="num" title="' + moneyFull(uRev) + '">' + money(uRev) + '</td></tr>';
       })() + '</tbody>';
 
-    // ----- 10 turnaround -----
-    // Scoped to the clients who reached that stage, and negative gaps are named rather than
-    // silently dropped: an event dated before its baseline is not a zero-day turnaround.
-    const tatUni = TAT_UNIVERSE[state.tat], tatField = TAT_FIELD[state.tat];
-    const tatRows = revCells.filter(r => !tatUni || r.status === tatUni);
-    const withVal = tatRows.filter(r => r[tatField] !== null && r[tatField] !== undefined);
-    const vals = withVal.filter(r => r[tatField] >= 0).map(r => r[tatField]);
-    const negRows = withVal.filter(r => r[tatField] < 0);
-    const denom = vals.length, negCount = negRows.length, missing = tatRows.length - withVal.length;
-    const splits = TAT_SPLIT.includes(state.tat);
-    const negOld = splits ? negRows.filter(r => r.convertPreDraftDays != null && r.convertPreDraftDays > TAT_OLD_DAYS).length : 0;
-    const negEarly = splits ? negRows.length - negOld : 0;
-    const neutralNeg = TAT_NEUTRAL_NEG_LABEL[state.tat];
-    $('tatCap').innerHTML = 'Measuring <b>' + TAT_LABEL[state.tat] + '</b>. Scope is ' + TAT_SCOPE_NOTE[state.tat] +
-      ' — <b>' + nf(tatRows.length) + '</b> plan' + (tatRows.length === 1 ? '' : 's') +
-      '. Bands are cumulative and overlap by design, so they do not add to 100%.';
-    const notes = [];
-    if (missing) notes.push('<b>' + missing + '</b> of the ' + tatRows.length + ' in scope are missing one of the two dates');
-    if (negCount) notes.push('<b>' + negCount + '</b> recorded the event <i>before</i> its baseline date' +
-      (splits || neutralNeg ? ' — named at the foot of the table' : ''));
-    $('tatWarn').innerHTML = denom === 0
-      ? '<p class="warnnote">No plan in the current selection has a usable value for this measure. That usually means the source date column is empty rather than that the turnaround was zero.</p>'
-      : (notes.length ? '<p class="warnnote">' + notes.join('; and ') + '. Those are excluded from the <b>' +
-         denom + '</b> plans measured below rather than counted as zero.</p>' : '');
-    const med = denom ? vals.slice().sort((a, b) => a - b)[Math.floor(denom / 2)] : null;
-    $('tatTbl').innerHTML =
-      '<thead><tr><th>Interval</th><th class="num">Plan count</th><th class="num">% of measured</th></tr></thead><tbody>' +
-      TAT_BUCKETS.map(b => {
-        const n = vals.filter(v => v > b).length;
-        return '<tr><td>&gt; ' + b + (b === 1 ? ' Day' : ' Days') + '</td><td class="num">' + n +
-          '</td><td class="num">' + pct(n, denom) + '</td></tr>';
-      }).join('') +
-      '<tr class="totrow"><td>Plans measured</td><td class="num">' + denom + '</td><td class="num">' +
-      (med === null ? '–' : 'median ' + med + 'd') + '</td></tr>' +
-      (splits && negCount
-        ? '<tr class="negrow"><td>Old Clients <span class="sub-pct">converted &gt; ' + TAT_OLD_DAYS +
-          'd before drafting</span></td><td class="num">' + negOld + '</td><td class="num">' + pct(negOld, tatRows.length) + '</td></tr>' +
-          '<tr class="negrow"><td>' + esc(TAT_EARLY_LABEL[state.tat] || 'Logged before drafting') + '</td><td class="num">' +
-          negEarly + '</td><td class="num">' + pct(negEarly, tatRows.length) + '</td></tr>'
-        : (neutralNeg && negCount
-            ? '<tr class="negrow"><td>' + esc(neutralNeg) + '</td><td class="num">' + negCount +
-              '</td><td class="num">' + pct(negCount, tatRows.length) + '</td></tr>' : '')) +
-      '</tbody>';
-
-    // ----- 11 client list (local build only) -----
+    // ----- 10 client list (local build only) -----
     if (HAS_PII) {
       const cols = [
         { k: 'm', t: 'Month' }, { k: 'name', t: 'Client' }, { k: 'email', t: 'Email id' },

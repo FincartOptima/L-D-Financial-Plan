@@ -64,7 +64,12 @@ FY_END = datetime.date(2027, 3, 31)
 # the FY sheets grade clients Alpha/Beta/Gamma (tier), the Plan Approval sheets record New/Existing
 # (tenure). They are kept as separate dimensions rather than merged, because a client can be both
 # ("Alpha" and "New") and the two vocabularies are not comparable to each other.
-TIER_VALUES = {"alpha": "Alpha", "beta": "Beta", "gamma": "Gamma", "gama": "Gamma"}
+TIER_VALUES = {
+    "alpha": "Alpha", "beta": "Beta", "gamma": "Gamma", "gama": "Gamma",
+    # One row in the source sheet has literal parentheses typed into the cell, splitting an
+    # otherwise-single-row category into two in the tier table.
+    "(investment transactional)": "Investment Transactional",
+}
 TENURE_VALUES = {"new": "New", "existing": "Existing"}
 BLANK = "Blank"
 
@@ -509,9 +514,17 @@ def build_clients(tickets):
             c["nFY"] += 1
             if t["subject"]:
                 c["subjects"].add(t["subject"])
-        if t["tierRaw"] and not c["tier"]:
+        # Overwrite on every non-blank sighting, never just the first: tier/tenure are gradings
+        # that change over time (an RM reclassifies a client from Beta to Alpha, say), and tickets
+        # are already visited in chronological order (the sort above), so this converges on each
+        # client's MOST RECENT classification. The earlier "first non-blank wins" version locked a
+        # client to whatever they were graded on their very first ticket and ignored every
+        # reclassification after it - confirmed wrong for 23 clients' tier and 2 clients' tenure
+        # against the raw sheets (e.g. porwalrk@gmail.com: graded Beta, later reclassified Alpha,
+        # was being reported as Beta).
+        if t["tierRaw"]:
             c["tier"] = t["tierRaw"]
-        if t["tenureRaw"] and not c["tenure"]:
+        if t["tenureRaw"]:
             c["tenure"] = t["tenureRaw"]
         if not c["advisor"] and t["advisor"]:
             c["advisor"] = t["advisor"]

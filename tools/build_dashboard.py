@@ -345,6 +345,10 @@ def load_all_rows(path, lead, team_map):
                 name_val = g(r, "Client Name")
                 ticket_val = g(r, "Ticket Id", "SR No")
                 email = g(r, cfg["email"])
+                # Only FY rows have a Ticket Subject column; PA-kind rows always report blank here.
+                # Blank is a valid value, not a missing one - a row with no subject can't be
+                # meaningfully in or out of a subject filter, so it should never be hideable by one.
+                subject_val = g(r, "Ticket Subject") if cfg["kind"] == "fy" else ""
 
                 def record_date_issue(column, raw_val, parsed_val):
                     issue = date_issue(raw_val, parsed_val) if raw_val else None
@@ -353,7 +357,7 @@ def load_all_rows(path, lead, team_map):
                         diag["date_issues"].append({
                             "sheet": cfg["name"], "row": row_idx, "ticket": ticket_val,
                             "name": name_val, "email": email, "column": column,
-                            "raw": raw_val, "issue": issue,
+                            "raw": raw_val, "issue": issue, "subject": subject_val,
                         })
 
                 # Date-quality checks run on every row with a client name, regardless of whether
@@ -375,6 +379,7 @@ def load_all_rows(path, lead, team_map):
                         diag["no_email_rows"].append({
                             "sheet": cfg["name"], "row": row_idx, "ticket": ticket_val,
                             "name": name_val, "month": month_raw, "date": g(r, cfg["date"]),
+                            "subject": subject_val,
                         })
                     continue
 
@@ -447,16 +452,20 @@ def load_all_rows(path, lead, team_map):
         clients = build_clients(tickets)
         # Stamp each ticket with its client's resolved tier / tenure / subject-set so the
         # ticket-level revenue view can be sliced by exactly the same dimensions and the same
-        # master filter as the client-level one.
+        # master filter as the client-level one. Also stamp "cid" (an opaque sequential id, not
+        # the email-based "key") - it is what the public build's client<->ticket join uses, since
+        # public tickets do not otherwise carry the client's email.
         by_key = {c["key"]: c for c in clients}
         for t in tickets:
             c = by_key.get(t["key"])
             if c:
                 t["tier"], t["tenure"] = c["tier"], c["tenure"]
                 t["subjKey"], t["inPA"] = c["subjKey"], c["inPA"]
+                t["cid"] = c["cid"]
             else:
                 t["tier"] = t["tenure"] = BLANK
                 t["subjKey"], t["inPA"] = "", False
+                t["cid"] = -1
         return tickets, clients, diag
     finally:
         wb.close()
@@ -484,7 +493,7 @@ def build_clients(tickets):
             c = by[t["key"]] = {
                 "key": t["key"], "email": t["email"], "name": t["name"],
                 "mk": t["mk"], "m": t["m"], "q": t["q"], "months": set(),
-                "inPA": False, "subjects": set(), "tier": "", "tenure": "",
+                "inPA": False, "subjects": set(), "monthSubjects": {}, "tier": "", "tenure": "",
                 "rev": {k: 0.0 for k, _ in PRODUCTS},
                 "nTickets": 0, "nPA": 0, "nFY": 0,
                 "advisor": "", "appr": "", "ticket": "",
@@ -514,6 +523,13 @@ def build_clients(tickets):
             c["nFY"] += 1
             if t["subject"]:
                 c["subjects"].add(t["subject"])
+                # Which subjects this client's FY tickets carried, broken out BY MONTH - the master
+                # filter needs this to avoid a subject picked up in one month leaking visibility onto
+                # a different month. "subjects" alone (all-time) was letting a client with an FP
+                # Creation ticket in June and an unrelated Review/Revise FP ticket in September show
+                # up in the September view whenever FP Creation was selected, even with no FP
+                # Creation activity in September at all.
+                c["monthSubjects"].setdefault(t["mk"], set()).add(t["subject"])
         # Overwrite on every non-blank sighting, never just the first: tier/tenure are gradings
         # that change over time (an RM reclassifies a client from Beta to Alpha, say), and tickets
         # are already visited in chronological order (the sort above), so this converges on each
@@ -538,6 +554,7 @@ def build_clients(tickets):
         # One value per client, so the master filter can be applied to an aggregated cell without
         # a client ever being counted under two different subjects.
         c["subjKey"] = "|".join(subs)
+        c["monthSubjects"] = {mk: sorted(s) for mk, s in c["monthSubjects"].items()}
         c["tier"] = c["tier"] or BLANK
         c["tenure"] = c["tenure"] or BLANK
         c["locations"] = "; ".join(c["locations"])
@@ -545,6 +562,10 @@ def build_clients(tickets):
         c["rev"] = {k: round(v, 2) for k, v in c["rev"].items()}
         out.append(c)
     out.sort(key=lambda r: (r["mk"], r["name"].lower()))
+    # Opaque, non-identifying join id (see load_all_rows) - assigned last so it's stable across
+    # runs given the same input data, independent of dict-iteration order.
+    for i, c in enumerate(out):
+        c["cid"] = i
     return out
 
 
@@ -691,7 +712,8 @@ def main():
     unmapped_list = [
         {"mk": c["mk"], "m": c["m"], "months": c["months"], "date": c["date"], "ticket": c["ticket"],
          "tier": c["tier"], "tenure": c["tenure"], "name": c["name"], "email": c["email"],
-         "advisor": c["advisor"], "subjects": ", ".join(c["subjects"]), "locations": c["locations"]}
+         "advisor": c["advisor"], "subjects": c["subjects"], "monthSubjects": c["monthSubjects"],
+         "locations": c["locations"], "inPA": c["inPA"]}
         for c in clients if not c["matched"]
     ]
     # Same deliberate exception as unmapped_list: these two are for going back to the source
@@ -706,33 +728,39 @@ def main():
     print("Wrote plan-approval-lead-status.html (full detail, local only)")
 
     # ---- published build ----
-    # De-identified: no client name, email or ticket id on any analysable record. The unmapped
-    # list below is the one deliberate exception - see the note there.
-    STRIP = ("name", "email", "ticket", "key")
-
-    def deid(rec):
-        return {k: v for k, v in rec.items() if k not in STRIP}
+    # BY EXPLICIT REQUEST, this build no longer de-identifies the client list: every client's name
+    # and email is on the published page, to drive a downloadable client-details CSV there. This is
+    # a materially bigger step than the earlier "narrow, named exceptions" design (unmapped clients
+    # / date issues / missing emails) - those exposed at most a few hundred rows with a stated
+    # reason each; this exposes the full roster. It is only acceptable because the repository is
+    # private - re-check this the moment that ever changes.
+    #
+    # Ticket rows stay name/email-free: nothing renders them as a table or a download, so there is
+    # no reason to duplicate identity onto every row when the client record already carries it.
+    # The client<->ticket join here uses "cid" (an opaque sequential integer, present on both
+    # arrays), not "key" (the email-normalized form) - "key" is dropped from tickets same as
+    # name/email/ticket. An earlier version kept "key" on tickets reasoning that it "reveals
+    # nothing further" once clients carry plaintext email, but that's wrong for tickets
+    # specifically: unlike clients, ticket rows carry no other identity field, so "key" alone
+    # would put each ticket's owner's email back onto every row. The PII scanner (pii_scan_keys
+    # below) caught this before it ever shipped. "cid" carries no such meaning, so it's safe here.
+    def deid_ticket(rec):
+        return {k: v for k, v in rec.items() if k not in ("name", "email", "ticket", "key")}
 
     public_payload = {
         "meta": dict(meta, hasPII=False),
-        "clients": [deid(c) for c in clients],
-        "tickets": [deid(t) for t in pa_tickets],
-        # DELIBERATE EXCEPTION: the only client-identifying data on the published page. It exists
-        # so the unmapped list can actually be chased down, and it is only acceptable because the
-        # repository is private. If the repo is ever made public again, remove this key - and note
-        # that anything already pushed stays in git history.
+        "clients": clients,
+        "tickets": [deid_ticket(t) for t in pa_tickets],
         "unmapped": unmapped_list,
         "dateIssues": date_issues_list,
         "noEmailRows": no_email_list,
     }
     public_html = embed(TEMPLATES / "dashboard.template.html", public_payload,
-                        pii_scan_keys=["clients", "tickets"])
+                        pii_scan_keys=["tickets"])
     (ROOT / "index.html").write_text(public_html, encoding="utf-8")
-    n_unmapped = len(public_payload["unmapped"])
-    print(f"Wrote index.html (de-identified + {n_unmapped} unmapped clients WITH names/emails)")
-    if n_unmapped:
-        print(f"  NOTE: index.html carries {n_unmapped} client names and email addresses.")
-        print("        Only publish it from a PRIVATE repository.")
+    print(f"Wrote index.html (FULL client roster, {len(clients)} names/emails, by request)")
+    print(f"  NOTE: index.html now carries every client's name and email address (client-details")
+    print(f"        CSV export). Only publish it from a PRIVATE repository.")
 
     return 0
 

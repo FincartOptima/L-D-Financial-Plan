@@ -397,7 +397,23 @@
     padding: 6px 10px; cursor: pointer;
   }
   .mactions button:hover { background: var(--ink); color: var(--panel); border-color: var(--ink); }
-  .subjchips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .subjdd { position: relative; }
+  .subjdd-toggle {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--rule-panel); border-radius: 0;
+    padding: 8px 12px; cursor: pointer; min-width: 260px;
+  }
+  .subjdd-toggle:hover { border-color: var(--ink); }
+  .subjdd-toggle .arrow { color: var(--ink-mute); font-size: 10px; }
+  .subjdd[data-open="1"] .subjdd-toggle { border-color: var(--ink); }
+  .subjchips {
+    display: none; flex-wrap: wrap; gap: 7px;
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+    background: var(--panel); border: 2px solid var(--ink);
+    padding: 12px; max-height: 320px; overflow-y: auto; width: min(600px, 92vw);
+  }
+  .subjdd[data-open="1"] .subjchips { display: flex; }
   .subjchip {
     display: inline-flex; align-items: center; gap: 8px;
     font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
@@ -520,10 +536,27 @@
           <button type="button" id="subjFP">FP only</button>
         </div>
       </div>
-      <div class="subjchips" id="subjChips"></div>
+      <div class="subjdd" id="subjDd" data-open="0">
+        <button type="button" class="subjdd-toggle" id="subjDdToggle" aria-expanded="false" aria-haspopup="true">
+          <span id="subjDdLabel">All subjects</span>
+          <span class="arrow" aria-hidden="true">▾</span>
+        </button>
+        <div class="subjchips" id="subjChips" role="listbox" aria-multiselectable="true"></div>
+      </div>
     </section>
 
     <section class="kpis" id="kpis"></section>
+
+    <section class="card" id="sec-download">
+      <div class="cardhead">
+        <div class="grow">
+          <p class="eyebrow">Download</p>
+          <h2>Client details</h2>
+          <p class="cap" id="downloadCap"></p>
+        </div>
+        <button class="ghost" id="clientCsvBtn" type="button">Download client details (CSV)</button>
+      </div>
+    </section>
 
     <section class="card" id="sec-source">
       <p class="eyebrow">01 — Composition</p>
@@ -558,15 +591,22 @@
       </section>
     </div>
 
+    <section class="card" id="sec-team-tier">
+      <p class="eyebrow">04 — By team</p>
+      <h2 id="teamTierTitle">Team-wise client tier distribution</h2>
+      <p class="cap" id="teamTierCap"></p>
+      <div class="tscroll"><table id="teamTierTbl"></table></div>
+    </section>
+
     <section class="card hm" id="sec-month">
-      <p class="eyebrow">04 — Over time</p>
+      <p class="eyebrow">05 — Over time</p>
       <h2>Month-wise lead status split</h2>
       <p class="cap">Months across the top, lead status down the side. A client is counted in every month they have a row in any sheet — someone active across several months appears in each, so a row's cells can add up to more than its own Total.</p>
       <div class="tscroll"><table id="monthMatrix"></table></div>
     </section>
 
     <section class="card" id="sec-subject">
-      <p class="eyebrow">05 — Work type</p>
+      <p class="eyebrow">06 — Work type</p>
       <h2>What the tickets are for</h2>
       <p class="cap" id="subjCap"></p>
       <div class="hbars" id="subjBars"></div>
@@ -574,13 +614,13 @@
 
     <div class="two" id="sec-class">
       <section class="card">
-        <p class="eyebrow">06 — Client tier</p>
+        <p class="eyebrow">07 — Client tier</p>
         <h2>Client tier distribution</h2>
         <p class="cap" id="tierCap"></p>
         <div class="tscroll"><table id="tierTbl"></table></div>
       </section>
       <section class="card">
-        <p class="eyebrow">06 — Client tenure</p>
+        <p class="eyebrow">07 — Client tenure</p>
         <h2>Client tenure distribution</h2>
         <p class="cap" id="tenureCap"></p>
         <div class="tscroll"><table id="tenureTbl"></table></div>
@@ -588,14 +628,14 @@
     </div>
 
     <section class="card xt" id="sec-cross">
-      <p class="eyebrow">07 — Tier × tenure</p>
+      <p class="eyebrow">08 — Tier × tenure</p>
       <h2>Tier against tenure</h2>
       <p class="cap" id="crossCap"></p>
       <div class="tscroll"><table id="crossTbl"></table></div>
     </section>
 
     <section class="card" id="sec-tier-status">
-      <p class="eyebrow">08 — Tier × status</p>
+      <p class="eyebrow">09 — Tier × status</p>
       <h2>Client distribution — tier × lead status</h2>
       <p class="cap">Client counts. Percentages are of the row (tier) total.</p>
       <div class="tscroll"><table id="tierStatusTbl"></table></div>
@@ -604,7 +644,7 @@
     <section class="card" id="sec-revenue">
       <div class="cardhead">
         <div class="grow">
-          <p class="eyebrow">09 — Revenue</p>
+          <p class="eyebrow">10 — Revenue</p>
           <h2>Revenue distribution — tier × lead status</h2>
           <p class="cap" id="revCap"></p>
         </div>
@@ -618,11 +658,10 @@
     </section>
 
     <section class="card" id="sec-list" hidden>
-      <p class="eyebrow">10 — Detail</p>
+      <p class="eyebrow">11 — Detail</p>
       <h2>Client list</h2>
       <p class="cap" id="listCap"></p>
       <div class="tblwrap"><table id="clientTbl"></table></div>
-      <div style="margin-top:12px"><button class="ghost" id="csvBtn" type="button">Download CSV of this view</button></div>
     </section>
   </div>
 
@@ -705,6 +744,7 @@
   const MONTHS = [...new Set(CLIENTS.flatMap(c => c.months || [c.mk]))].sort()
     .map(mk => ({ mk, m: MONTH_LABELS[mk] || mk }));
   const SUBJECTS = META.subjects || [];
+  const SUBJECTS_SET = new Set(SUBJECTS);
   const FP_SUBJECTS = SUBJECTS.filter(s => /^FP |^FP$|Review\/Revise FP/i.test(s));
 
   const TIER_ORDER = ['Alpha', 'Beta', 'Gamma'];
@@ -741,10 +781,20 @@
     : (r.rev[state.product] || 0));
 
   // ---------- the master filter ----------
+  // A client's ticket subjects, scoped to the currently selected month when one is active. Without
+  // this, a client active in two different months under two different subjects would let a subject
+  // picked up in one month leak visibility onto a completely different month - e.g. a client with
+  // an FP Creation ticket in June and an unrelated Review/Revise FP ticket in September would show
+  // up in the September view whenever FP Creation was selected, despite having no FP Creation
+  // activity in September at all. Falls back to the full all-time subject set when no month filter
+  // is applied - same "any month" rule the month filter itself already uses elsewhere.
+  function subjectsInScope(c) {
+    if (!state.month) return c.subjects;
+    return (c.monthSubjects && c.monthSubjects[state.month]) || [];
+  }
   // A client counts if they appear on a Plan Approval sheet (the base, which the subject filter
-  // never removes) OR if any of their FY ticket subjects is currently selected. Subjects are held
-  // per client as a set, so a client with two subjects is still only ever counted once.
-  const inSubjectScope = c => c.inPA || c.subjects.some(s => state.subjects.has(s));
+  // never removes) OR if any of their (month-scoped) FY ticket subjects is currently selected.
+  const inSubjectScope = c => c.inPA || subjectsInScope(c).some(s => state.subjects.has(s));
 
   // Shared by both client rows (carry the full "months" set they're active in) and ticket rows
   // (carry only a single "mk" — one row is one date, so it can't span months). A client passes a
@@ -768,10 +818,11 @@
   const statusVisible = r => !r.matched || !state.off.has(r.status);
 
   // Plan-approval tickets for the revenue section, scoped to the clients that survive the
-  // current filters.
+  // current filters. Joins on "cid" (an opaque id), not "key" (email-based) - the public build
+  // strips "key" from ticket rows since they carry no other identity field.
   function selectedTickets() {
-    const keys = new Set(selected().filter(statusVisible).map(c => c.key));
-    return TICKETS.filter(t => keys.has(t.key) && passesFilters(t));
+    const cids = new Set(selected().filter(statusVisible).map(c => c.cid));
+    return TICKETS.filter(t => cids.has(t.cid) && passesFilters(t));
   }
 
   // ---------- vertical bar chart ----------
@@ -822,6 +873,9 @@
     $('subjChips').innerHTML = SUBJECTS.map(s =>
       '<button class="subjchip" type="button" data-subj="' + esc(s) + '" aria-pressed="' +
       state.subjects.has(s) + '">' + esc(s) + '<span class="n">' + nf(subjCounts[s]) + '</span></button>').join('');
+    $('subjDdLabel').textContent = state.subjects.size === SUBJECTS.length ? 'All subjects selected'
+      : state.subjects.size === 0 ? 'No subjects selected'
+      : state.subjects.size + ' of ' + SUBJECTS.length + ' subjects';
     const paBase = CLIENTS.filter(c => c.inPA).length;
     $('masterNote').innerHTML = '<b>' + nf(sel.length) + '</b> clients in view. The ' + nf(paBase) +
       ' on the Plan Approval sheets always count; the subjects ticked below decide how many ' +
@@ -901,7 +955,33 @@
       present.map(s => '<td class="num">' + rows.filter(r => r.status === s.k).length + '</td>').join('') +
       '<td class="num">' + total + '</td></tr></tbody>';
 
-    // ----- 04 month x status -----
+    // ----- 04 team x tier -----
+    // Same team/RM grouping as the status table above (teamGroups, teamDim) — just crossed
+    // against tier instead of status. Scoped to the same "rows" population (mapped clients) for
+    // the same reason team-wise-status is: an unmapped client has no real team, only the
+    // "No lead record" placeholder, which isn't a useful row to tabulate here.
+    const tierColsPresent = TIERS.filter(v => rows.some(r => r.tier === v));
+    $('teamTierTitle').textContent = state.team ? 'RM-wise client tier distribution' : 'Team-wise client tier distribution';
+    $('teamTierCap').innerHTML = state.team
+      ? 'Mapped clients per RM within <b>' + esc(state.team) + '</b>, by client tier.'
+      : 'Mapped clients per team, by client tier (Alpha / Beta / Gamma / ' + esc(BLANK) + ').';
+    $('teamTierTbl').innerHTML =
+      '<thead><tr><th>' + (state.team ? 'RM' : 'Team') + '</th>' +
+      tierColsPresent.map(v => '<th class="num">' + esc(v) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+      teamGroups.map(t => {
+        const tr = rows.filter(r => r[teamDim] === t);
+        return '<tr><td>' + esc(t || '(No RM)') + '</td>' +
+          tierColsPresent.map(v => {
+            const n = tr.filter(r => r.tier === v).length;
+            return '<td class="num">' + (n || '–') + '</td>';
+          }).join('') +
+          '<td class="num">' + tr.length + '</td></tr>';
+      }).join('') +
+      '<tr class="totrow"><td>All ' + (state.team ? 'RMs' : 'teams') + '</td>' +
+      tierColsPresent.map(v => '<td class="num">' + rows.filter(r => r.tier === v).length + '</td>').join('') +
+      '<td class="num">' + total + '</td></tr></tbody>';
+
+    // ----- 05 month x status -----
     // A client is counted in EVERY month they have a row in any sheet, so someone active across
     // several months appears in each of those columns. That means a status row's cells can sum
     // to more than its own "Total" (which stays the distinct client count, matching the status
@@ -925,7 +1005,7 @@
         months.map(m => '<td class="num muted-col">' + (unmappedSel.filter(r => r.months.includes(m.mk)).length || '–') + '</td>').join('') +
         '<td class="num muted-col">' + unmappedSel.length + '</td></tr>' : '') + '</tbody>';
 
-    // ----- 05 subjects -----
+    // ----- 06 subjects -----
     const subjSel = {};
     SUBJECTS.forEach(s => { subjSel[s] = 0; });
     sel.forEach(c => c.subjects.forEach(s => { if (s in subjSel) subjSel[s]++; }));
@@ -940,7 +1020,7 @@
       '<div class="val">' + nf(x.n) + '</div></div>').join('') ||
       '<p class="cap">No FY tickets in the current selection.</p>';
 
-    // ----- 06 tier + tenure -----
+    // ----- 07 tier + tenure -----
     function classTable(el, values, field, capEl, capText) {
       const present2 = values.filter(v => sel.some(c => c[field] === v));
       $(capEl).innerHTML = capText;
@@ -964,7 +1044,7 @@
       'Recorded <b>New / Existing</b> on the Plan Approval sheets. <b>' + BLANK +
       '</b> means the client has no plan approval, so no tenure was ever set.');
 
-    // ----- 07 tier x tenure -----
+    // ----- 08 tier x tenure -----
     const tiersP = TIERS.filter(v => sel.some(c => c.tier === v));
     const tenuresP = TENURES.filter(v => sel.some(c => c.tenure === v));
     $('crossCap').innerHTML = 'The two classifications are different things and come from different sheets, so ' +
@@ -983,7 +1063,7 @@
       tenuresP.map(nv => '<td class="num">' + nf(sel.filter(c => c.tenure === nv).length) + '</td>').join('') +
       '<td class="num">' + nf(sel.length) + '</td></tr></tbody>';
 
-    // ----- 08 tier x status -----
+    // ----- 09 tier x status -----
     $('tierStatusTbl').innerHTML = crossHead(present, 'Tier') + '<tbody>' +
       tiersP.map(v => {
         const cr = rows.filter(r => r.tier === v);
@@ -1000,7 +1080,7 @@
       present.map(s => '<td class="num">' + rows.filter(r => r.status === s.k).length + '</td>').join('') +
       '<td class="num">' + nf(total) + '</td><td class="num">' + nf(unmappedSel.length) + '</td></tr></tbody>';
 
-    // ----- 09 revenue (plan approvals only) -----
+    // ----- 10 revenue (plan approvals only) -----
     const revCells = selectedTickets();
     const prodLabel = state.product === 'all' ? 'All products (sum)'
       : (PRODUCTS.find(p => p.k === state.product) || {}).label;
@@ -1037,7 +1117,7 @@
           '<td class="num" title="' + moneyFull(uRev) + '">' + money(uRev) + '</td></tr>';
       })() + '</tbody>';
 
-    // ----- 10 client list (local build only) -----
+    // ----- 11 client list (local build only) -----
     if (HAS_PII) {
       const cols = [
         { k: 'm', t: 'Month' }, { k: 'name', t: 'Client' }, { k: 'email', t: 'Email id' },
@@ -1067,16 +1147,28 @@
         '<td class="num">' + r.nTickets + '</td></tr>').join('') + '</tbody>';
     }
 
+    // Client-details download — visible on both pages, not just where the table itself renders.
+    // Pulls from the exact same "sel" (every active filter, including the master subject filter
+    // and a team/RM drill-down) that every other section on this page already uses, so "download"
+    // always means exactly what's currently on screen.
+    const downloadRows = sel.filter(statusVisible);
+    $('downloadCap').innerHTML = 'Every field on the client record for the <b>' + nf(downloadRows.length) +
+      '</b> clients in the current view — respects every filter above, including team/RM and the ticket subject picker.';
+
     // ----- unmapped tab -----
-    // Same "any month they have a row in" rule as everywhere else — see passesFilters().
+    // Same "any month they have a row in" rule as everywhere else — see passesFilters(). Subject
+    // scoping mirrors inSubjectScope()/subjectsInScope() exactly, month-scoped the same way: a
+    // client on a Plan Approval sheet always counts, an FY-only client only counts if one of their
+    // CURRENT-MONTH subjects is selected (falling back to all-time when no month is picked).
     const unmappedAll = (DATA.unmapped || []).filter(r =>
       (!state.month || r.months.includes(state.month)) && (!state.tier || r.tier === state.tier) &&
-      (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor));
+      (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor) &&
+      (r.inPA || subjectsInScope(r).some(s => state.subjects.has(s))));
     $('unmappedBadge').textContent = nf(unmappedAll.length);
     $('unmappedCap').innerHTML = 'Showing <b>' + nf(unmappedAll.length) + '</b> client' +
       (unmappedAll.length === 1 ? '' : 's') + ' whose email has no match in the lead export. ' +
-      'Create or correct their lead record, then re-run the build. Only the month, tier, tenure and advisor filters apply here — ' +
-      'the rest read off a lead record these clients do not have.';
+      'Create or correct their lead record, then re-run the build. The month, tier, tenure, advisor and ' +
+      'ticket-subject filters all apply here — the rest read off a lead record these clients do not have.';
     const ucols = [{ k: 'date', t: 'Date' }, { k: 'ticket', t: 'Ticket ID' }, { k: 'tier', t: 'Tier' },
       { k: 'tenure', t: 'Tenure' }, { k: 'name', t: 'Client name' }, { k: 'email', t: 'Client mail ID' },
       { k: 'advisor', t: 'Advisor / RM' }, { k: 'subjects', t: 'Ticket subjects' },
@@ -1084,49 +1176,60 @@
     $('unmappedTbl').innerHTML =
       '<thead><tr>' + ucols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
       (unmappedAll.length
-        ? unmappedAll.map(r => '<tr>' + ucols.map(c =>
-            '<td' + (c.k === 'name' || c.k === 'subjects' || c.k === 'locations' ? ' class="wrapcell"' : '') + '>' +
-            esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
+        ? unmappedAll.map(r => '<tr>' + ucols.map(c => {
+            const v = c.k === 'subjects' ? r.subjects.join(', ') : r[c.k];
+            return '<td' + (c.k === 'name' || c.k === 'subjects' || c.k === 'locations' ? ' class="wrapcell"' : '') +
+              '>' + esc(v || '–') + '</td>';
+          }).join('') + '</tr>').join('')
         : '<tr><td colspan="' + ucols.length + '">Every client in this selection mapped to a lead record.</td></tr>') +
       '</tbody>';
 
     // ----- date issues tab -----
-    // Not scoped to the current filters or the master subject filter: this is a data-quality
-    // checklist for fixing the source sheets, not a view of the analysis, so it always shows
-    // every row from the sheets that made it into this build (April excluded, same as everywhere).
-    const dateIssues = DATA.dateIssues || [];
-    $('dateIssuesBadge').textContent = nf(dateIssues.length);
-    $('dateIssuesCap').innerHTML = dateIssues.length
-      ? 'Found <b>' + nf(dateIssues.length) + '</b> row' + (dateIssues.length === 1 ? '' : 's') +
+    // Scoped to the master subject filter only (not to month/tier/team/etc — this is a data-
+    // quality checklist for fixing the source sheets, not a view of the analysis). A row with no
+    // Ticket Subject at all (PA-kind rows don't have that column) always shows: it can't be
+    // meaningfully included or excluded by a subject it doesn't carry. Same for a subject value
+    // the dropdown doesn't even offer (e.g. a typo'd subject that only ever occurs on a row with
+    // no email, so it never reached the client-level subject universe the dropdown is built from)
+    // — the user has no lever to exclude it, so it must not be silently unshowable either.
+    const subjOk = r => !r.subject || !SUBJECTS_SET.has(r.subject) || state.subjects.has(r.subject);
+    const dateIssuesAll = (DATA.dateIssues || []).filter(subjOk);
+    $('dateIssuesBadge').textContent = nf(dateIssuesAll.length);
+    $('dateIssuesCap').innerHTML = dateIssuesAll.length
+      ? 'Found <b>' + nf(dateIssuesAll.length) + '</b> row' + (dateIssuesAll.length === 1 ? '' : 's') +
         ' where a date cell could not be trusted — either it does not parse as a date at all, or it parses to a ' +
         'year outside FY 2026-27 (a likely typo, e.g. 11.06.<b>2926</b>). Each is bucketed by its Month column ' +
-        'instead so it does not distort the dashboard, but the sheet itself still needs correcting at the row shown.'
-      : 'No date issues found in the current build — every date cell in the workbook parsed to a value inside FY 2026-27.';
+        'instead so it does not distort the dashboard, but the sheet itself still needs correcting at the row shown. ' +
+        'The ticket-subject filter applies here; a row from a Plan Approval sheet has no subject and always shows.'
+      : 'No date issues in the current subject selection.';
     const dcols = [{ k: 'sheet', t: 'Sheet' }, { k: 'row', t: 'Row' }, { k: 'column', t: 'Column' },
       { k: 'raw', t: 'Value as typed' }, { k: 'ticket', t: 'Ticket' }, { k: 'name', t: 'Client name' },
-      { k: 'email', t: 'Client mail ID' }, { k: 'issue', t: 'Problem' }];
+      { k: 'email', t: 'Client mail ID' }, { k: 'subject', t: 'Ticket subject' }, { k: 'issue', t: 'Problem' }];
     $('dateIssuesTbl').innerHTML =
       '<thead><tr>' + dcols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
-      (dateIssues.length
-        ? dateIssues.map(r => '<tr>' + dcols.map(c =>
+      (dateIssuesAll.length
+        ? dateIssuesAll.map(r => '<tr>' + dcols.map(c =>
             '<td' + (c.k === 'name' || c.k === 'issue' ? ' class="wrapcell"' : '') +
             (c.k === 'row' ? ' class="num"' : '') + '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
         : '<tr><td colspan="' + dcols.length + '">Nothing to show.</td></tr>') + '</tbody>';
 
     // ----- missing email tab -----
-    const noEmail = DATA.noEmailRows || [];
-    $('noEmailBadge').textContent = nf(noEmail.length);
-    $('noEmailCap').innerHTML = noEmail.length
-      ? 'Found <b>' + nf(noEmail.length) + '</b> row' + (noEmail.length === 1 ? '' : 's') +
+    // Same subject rule as Date Issues, for the same reason.
+    const noEmailAll = (DATA.noEmailRows || []).filter(subjOk);
+    $('noEmailBadge').textContent = nf(noEmailAll.length);
+    $('noEmailCap').innerHTML = noEmailAll.length
+      ? 'Found <b>' + nf(noEmailAll.length) + '</b> row' + (noEmailAll.length === 1 ? '' : 's') +
         ' with a client name but no email address. These cannot be matched to the lead data or de-duplicated ' +
-        'against the other sheets, so they take no part in the dashboard at all — add the email at the row shown to bring them in.'
-      : 'No rows are missing a client email in the current build.';
+        'against the other sheets, so they take no part in the dashboard at all — add the email at the row shown to bring them in. ' +
+        'The ticket-subject filter applies here; a row from a Plan Approval sheet has no subject and always shows.'
+      : 'No rows are missing a client email in the current subject selection.';
     const ncols = [{ k: 'sheet', t: 'Sheet' }, { k: 'row', t: 'Row' }, { k: 'ticket', t: 'Ticket' },
-      { k: 'name', t: 'Client name' }, { k: 'month', t: 'Month' }, { k: 'date', t: 'Date as typed' }];
+      { k: 'name', t: 'Client name' }, { k: 'month', t: 'Month' }, { k: 'date', t: 'Date as typed' },
+      { k: 'subject', t: 'Ticket subject' }];
     $('noEmailTbl').innerHTML =
       '<thead><tr>' + ncols.map(c => '<th>' + c.t + '</th>').join('') + '</tr></thead><tbody>' +
-      (noEmail.length
-        ? noEmail.map(r => '<tr>' + ncols.map(c =>
+      (noEmailAll.length
+        ? noEmailAll.map(r => '<tr>' + ncols.map(c =>
             '<td' + (c.k === 'name' ? ' class="wrapcell"' : '') + (c.k === 'row' ? ' class="num"' : '') +
             '>' + esc(r[c.k] || '–') + '</td>').join('') + '</tr>').join('')
         : '<tr><td colspan="' + ncols.length + '">Nothing to show.</td></tr>') + '</tbody>';
@@ -1203,6 +1306,22 @@
   $('subjAll').addEventListener('click', () => { state.subjects = new Set(SUBJECTS); render(); });
   $('subjNone').addEventListener('click', () => { state.subjects = new Set(); render(); });
   $('subjFP').addEventListener('click', () => { state.subjects = new Set(FP_SUBJECTS); render(); });
+  // Dropdown chrome: a toggle button reveals the same multi-select chip panel used before, just
+  // collapsed by default. Picking chips does not auto-close it, so several can be toggled in one
+  // pass; clicking anywhere outside the dropdown closes it.
+  const subjDd = $('subjDd');
+  $('subjDdToggle').addEventListener('click', e => {
+    e.stopPropagation();
+    const open = subjDd.dataset.open !== '1';
+    subjDd.dataset.open = open ? '1' : '0';
+    $('subjDdToggle').setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', e => {
+    if (subjDd.dataset.open === '1' && !subjDd.contains(e.target)) {
+      subjDd.dataset.open = '0';
+      $('subjDdToggle').setAttribute('aria-expanded', 'false');
+    }
+  });
 
   const FILTER_IDS = { fMonth: 'month', fTier: 'tier', fTenure: 'tenure', fTeam: 'team',
                        fPlatform: 'platform', fAdvisor: 'advisor', fSource: 'source' };
@@ -1239,30 +1358,48 @@
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = filename; a.click(); URL.revokeObjectURL(a.href);
   }
-  if (HAS_PII) $('csvBtn').addEventListener('click', () => {
+  // Every field the client record carries — same population as every other section ("sel", which
+  // already respects the master subject filter, team/RM drill-down, and every dropdown filter).
+  // Ships on both pages by request; there is no HAS_PII gate on this one.
+  $('clientCsvBtn').addEventListener('click', () => {
     const rows = selected().filter(statusVisible);
-    const cols = ['m', 'name', 'email', 'status', 'tier', 'tenure', 'team', 'rm', 'advisor', 'platform', 'src'];
-    const head = ['Month', 'Client Name', 'Email Id', 'Lead Status', 'Tier', 'Tenure', 'Team', 'RM', 'Advisor', 'Platform', 'Lead Source'];
-    downloadCsv('ld-financial-planning-clients.csv', head.concat(['Subjects', 'Tickets']),
-      rows.map(r => cols.map(c => r[c]).concat([r.subjects.join('; '), r.nTickets])));
+    const cols = ['m', 'name', 'email', 'ticket', 'status', 'tier', 'tenure', 'team', 'rm', 'advisor',
+                  'appr', 'platform', 'src', 'b2cCategory', 'created', 'converted', 'locations'];
+    const head = ['Month', 'Client Name', 'Email Id', 'Ticket ID', 'Lead Status', 'Tier', 'Tenure',
+                  'Team', 'RM', 'Advisor', 'Approved By', 'Platform', 'Lead Source', 'Category',
+                  'Lead Created', 'Converted On', 'Sheet / Row'];
+    head.push('Matched to Lead Data', 'On Plan Approval Sheet', '# Plan Approvals', '# FY Tickets',
+               '# Tickets Total', 'Ticket Subjects');
+    PRODUCTS.forEach(p => head.push(p.label));
+    head.push('Total Revenue (shown product)');
+    downloadCsv('ld-financial-planning-client-details.csv', head, rows.map(r => {
+      const line = cols.map(c => r[c]);
+      line.push(r.matched ? 'Yes' : 'No', r.inPA ? 'Yes' : 'No', r.nPA, r.nFY, r.nTickets, r.subjects.join('; '));
+      PRODUCTS.forEach(p => line.push((r.rev && r.rev[p.k]) || 0));
+      line.push(PRODUCTS.reduce((a, p) => a + ((r.rev && r.rev[p.k]) || 0), 0));
+      return line;
+    }));
   });
   $('unmappedCsvBtn').addEventListener('click', () => {
     const rows = (DATA.unmapped || []).filter(r =>
       (!state.month || r.months.includes(state.month)) && (!state.tier || r.tier === state.tier) &&
-      (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor));
+      (!state.tenure || r.tenure === state.tenure) && (!state.advisor || r.advisor === state.advisor) &&
+      (r.inPA || subjectsInScope(r).some(s => state.subjects.has(s))));
     const cols = ['date', 'ticket', 'tier', 'tenure', 'name', 'email', 'advisor', 'subjects', 'locations'];
     const head = ['Date', 'Ticket ID', 'Tier', 'Tenure', 'Client Name', 'Client Mail ID', 'Advisor', 'Ticket Subjects', 'Sheet / Row'];
-    downloadCsv('unmapped-clients.csv', head, rows.map(r => cols.map(c => r[c])));
+    downloadCsv('unmapped-clients.csv', head, rows.map(r => cols.map(c => c === 'subjects' ? r.subjects.join('; ') : r[c])));
   });
   $('dateIssuesCsvBtn').addEventListener('click', () => {
-    const cols = ['sheet', 'row', 'column', 'raw', 'issue', 'ticket', 'name', 'email'];
-    const head = ['Sheet', 'Row', 'Column', 'Value As Typed', 'Problem', 'Ticket', 'Client Name', 'Client Mail ID'];
-    downloadCsv('date-issues.csv', head, (DATA.dateIssues || []).map(r => cols.map(c => r[c])));
+    const rows = (DATA.dateIssues || []).filter(r => !r.subject || !SUBJECTS_SET.has(r.subject) || state.subjects.has(r.subject));
+    const cols = ['sheet', 'row', 'column', 'raw', 'issue', 'ticket', 'name', 'email', 'subject'];
+    const head = ['Sheet', 'Row', 'Column', 'Value As Typed', 'Problem', 'Ticket', 'Client Name', 'Client Mail ID', 'Ticket Subject'];
+    downloadCsv('date-issues.csv', head, rows.map(r => cols.map(c => r[c])));
   });
   $('noEmailCsvBtn').addEventListener('click', () => {
-    const cols = ['sheet', 'row', 'ticket', 'name', 'month', 'date'];
-    const head = ['Sheet', 'Row', 'Ticket', 'Client Name', 'Month', 'Date As Typed'];
-    downloadCsv('missing-emails.csv', head, (DATA.noEmailRows || []).map(r => cols.map(c => r[c])));
+    const rows = (DATA.noEmailRows || []).filter(r => !r.subject || !SUBJECTS_SET.has(r.subject) || state.subjects.has(r.subject));
+    const cols = ['sheet', 'row', 'ticket', 'name', 'month', 'date', 'subject'];
+    const head = ['Sheet', 'Row', 'Ticket', 'Client Name', 'Month', 'Date As Typed', 'Ticket Subject'];
+    downloadCsv('missing-emails.csv', head, rows.map(r => cols.map(c => r[c])));
   });
 
   // ---------- populate ----------

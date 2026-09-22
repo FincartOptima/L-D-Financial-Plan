@@ -639,6 +639,7 @@
       <h2>Client distribution — tier × lead status</h2>
       <p class="cap">Client counts. Percentages are of the row (tier) total.</p>
       <div class="tscroll"><table id="tierStatusTbl"></table></div>
+      <div style="margin-top:12px"><button class="ghost" id="tierStatusCsvBtn" type="button">Download CSV</button></div>
     </section>
 
     <section class="card" id="sec-revenue">
@@ -1379,6 +1380,22 @@
       line.push(PRODUCTS.reduce((a, p) => a + ((r.rev && r.rev[p.k]) || 0), 0));
       return line;
     }));
+  });
+  // Same population feeding the "09 — Tier x status" table (mapped, status-visible, currently
+  // filtered clients), but as one row per client rather than a crosstab of counts — so a Tier x
+  // Status cell someone is curious about can be traced back to exactly which clients it's made of.
+  // Sorted by tier then status so rows for the same cell sit together.
+  $('tierStatusCsvBtn').addEventListener('click', () => {
+    const rows = selected().filter(c => c.matched && !state.off.has(c.status)).slice().sort((a, b) =>
+      (TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier)) ||
+      (STATUS.findIndex(s => s.k === a.status) - STATUS.findIndex(s => s.k === b.status)) ||
+      a.name.localeCompare(b.name));
+    const cols = ['tier', 'status', 'm', 'name', 'email', 'ticket', 'tenure', 'team', 'rm', 'advisor',
+                  'appr', 'platform', 'src', 'b2cCategory', 'created', 'converted', 'locations'];
+    const head = ['Tier', 'Lead Status', 'Month', 'Client Name', 'Email Id', 'Ticket ID', 'Tenure',
+                  'Team', 'RM', 'Advisor', 'Approved By', 'Platform', 'Lead Source', 'Category',
+                  'Lead Created', 'Converted On', 'Sheet / Row'];
+    downloadCsv('tier-status-client-details.csv', head, rows.map(r => cols.map(c => r[c])));
   });
   $('unmappedCsvBtn').addEventListener('click', () => {
     const rows = (DATA.unmapped || []).filter(r =>
